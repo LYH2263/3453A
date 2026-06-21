@@ -35,7 +35,13 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
     @Override
     public Result<?> listAssets(Integer clubId, Integer pageNum, Integer pageSize) {
         LambdaQueryWrapper<ClubAsset> wrapper = new LambdaQueryWrapper<>();
-        if (clubId != null) {
+        User currentUser = getCurrentUser();
+        if (currentUser != null && RoleConstants.MEMBER.equals(currentUser.getRole())) {
+            if (currentUser.getClubId() == null) {
+                return Result.success(new Page<>(pageNum, pageSize));
+            }
+            wrapper.eq(ClubAsset::getClubId, currentUser.getClubId());
+        } else if (clubId != null) {
             wrapper.eq(ClubAsset::getClubId, clubId);
         }
         wrapper.orderByDesc(ClubAsset::getCreateTime);
@@ -115,12 +121,8 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
         ClubAsset asset = assetMapper.selectByIdForUpdate(assetId);
         if (asset == null) return Result.error("物资不存在");
 
-        long approvedCount = borrowRecordMapper.selectCount(new LambdaQueryWrapper<AssetBorrowRecord>()
-                .eq(AssetBorrowRecord::getAssetId, assetId)
-                .eq(AssetBorrowRecord::getStatus, "APPROVED"));
-        int available = asset.getStock() - (int) approvedCount;
-        if (quantity > available) {
-            return Result.error("可用库存不足，当前可借数量：" + available);
+        if (quantity > asset.getStock()) {
+            return Result.error("可用库存不足，当前可借数量：" + asset.getStock());
         }
 
         AssetBorrowRecord record = new AssetBorrowRecord();
@@ -150,13 +152,12 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
             return Result.error("无权审批其他社团的物资");
         }
 
-        long approvedCount = borrowRecordMapper.selectCount(new LambdaQueryWrapper<AssetBorrowRecord>()
-                .eq(AssetBorrowRecord::getAssetId, record.getAssetId())
-                .eq(AssetBorrowRecord::getStatus, "APPROVED"));
-        int available = asset.getStock() - (int) approvedCount;
-        if (record.getQuantity() > available) {
-            return Result.error("可用库存不足，当前可借数量：" + available);
+        if (asset.getStock() < record.getQuantity()) {
+            return Result.error("可用库存不足，当前可借数量：" + asset.getStock());
         }
+
+        asset.setStock(asset.getStock() - record.getQuantity());
+        assetMapper.updateById(asset);
 
         record.setStatus("APPROVED");
         record.setBorrowTime(LocalDateTime.now());
@@ -193,7 +194,7 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
         if (record == null) return Result.error("借还记录不存在");
         if (!"APPROVED".equals(record.getStatus())) return Result.error("只有已借出的记录才能确认归还");
 
-        ClubAsset asset = assetMapper.selectById(record.getAssetId());
+        ClubAsset asset = assetMapper.selectByIdForUpdate(record.getAssetId());
         if (asset == null) return Result.error("物资不存在");
 
         User currentUser = getCurrentUser();
@@ -202,6 +203,9 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
         if (RoleConstants.CLUB_LEADER.equals(currentUser.getRole()) && !asset.getClubId().equals(currentUser.getClubId())) {
             return Result.error("无权确认其他社团的物资归还");
         }
+
+        asset.setStock(asset.getStock() + record.getQuantity());
+        assetMapper.updateById(asset);
 
         record.setStatus("RETURNED");
         record.setReturnTime(LocalDateTime.now());
@@ -213,11 +217,23 @@ public class ClubAssetServiceImpl extends ServiceImpl<ClubAssetMapper, ClubAsset
     @Override
     public Result<?> listBorrowRecords(Integer clubId, String status, Integer pageNum, Integer pageSize) {
         LambdaQueryWrapper<AssetBorrowRecord> wrapper = new LambdaQueryWrapper<>();
+        User currentUser = getCurrentUser();
 
-        if (clubId != null) {
-            wrapper.inSql(AssetBorrowRecord::getAssetId,
-                    "SELECT id FROM club_assets WHERE club_id = " + clubId);
+        Integer targetClubId = null;
+        if (currentUser != null && RoleConstants.MEMBER.equals(currentUser.getRole())) {
+            targetClubId = currentUser.getClubId();
+        } else if (currentUser != null && RoleConstants.CLUB_LEADER.equals(currentUser.getRole())) {
+            targetClubId = currentUser.getClubId();
+            if (clubId != null) targetClubId = clubId;
+        } else if (clubId != null) {
+            targetClubId = clubId;
         }
+
+        if (targetClubId != null) {
+            wrapper.inSql(AssetBorrowRecord::getAssetId,
+                    "SELECT id FROM club_assets WHERE club_id = " + targetClubId);
+        }
+
         if (status != null && !status.isEmpty()) {
             wrapper.eq(AssetBorrowRecord::getStatus, status);
         }

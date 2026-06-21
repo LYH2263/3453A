@@ -291,6 +291,8 @@ const fetchAssets = async () => {
     if (filterClubId.value) params.clubId = filterClubId.value
     else if (userStore.role === 'CLUB_LEADER' && userStore.userInfo?.clubId) {
       params.clubId = userStore.userInfo.clubId
+    } else if (userStore.role === 'MEMBER' && userStore.userInfo?.clubId) {
+      params.clubId = userStore.userInfo.clubId
     }
     const res: any = await request.get('/assets', { params })
     assets.value = res.records
@@ -377,6 +379,7 @@ const submitBorrow = async () => {
     ElMessage.success('申请提交成功，请等待审批')
     showBorrowDialog.value = false
     fetchBorrowRecords()
+    fetchAssets()
   } catch { /* handled */ }
 }
 
@@ -393,6 +396,8 @@ const fetchBorrowRecords = async () => {
     if (recordStatusFilter.value) params.status = recordStatusFilter.value
     if (recordClubId.value) params.clubId = recordClubId.value
     else if (userStore.role === 'CLUB_LEADER' && userStore.userInfo?.clubId) {
+      params.clubId = userStore.userInfo.clubId
+    } else if (userStore.role === 'MEMBER' && userStore.userInfo?.clubId) {
       params.clubId = userStore.userInfo.clubId
     }
     const res: any = await request.get('/assets/borrow/records', { params })
@@ -421,6 +426,7 @@ const handleReject = (row: BorrowRecord) => {
       await request.post(`/assets/borrow/${row.id}/reject`)
       ElMessage.success('已驳回')
       fetchBorrowRecords()
+      fetchAssets()
     } catch { /* handled */ }
   }).catch(() => {})
 }
@@ -443,6 +449,7 @@ const submitReject = async () => {
     ElMessage.success('已驳回')
     showApproveDialog.value = false
     fetchBorrowRecords()
+    fetchAssets()
   } catch { /* handled */ }
 }
 
