@@ -52,8 +52,8 @@
               <div class="enrollment-info">
                 <span class="enrollment-count">
                   已报名: {{ act._detail?.registeredCount || 0 }} / {{ act.maxCount }}
-                  <span v-if="act._detail?.waitlistCount > 0" class="waitlist-count">
-                    (候补: {{ act._detail.waitlistCount }})
+                  <span v-if="act._detail?.waitlistCount && act._detail.waitlistCount > 0" class="waitlist-count">
+                    (候补: {{ act._detail?.waitlistCount }})
                   </span>
                 </span>
                 <el-tag v-if="act._detail?.isFull" type="danger" size="small">已满员</el-tag>
@@ -98,6 +98,20 @@
                   确认合作
                 </el-button>
                 <el-button v-if="act.status === 'APPROVED' && userStore.role === 'CLUB_LEADER'" type="success" size="small" @click="handleFinish(act.id)">结束活动</el-button>
+                <el-button 
+                  v-if="canFeedback(act)" 
+                  type="primary" 
+                  size="small" 
+                  @click="handleFeedback(act)">
+                  反馈
+                </el-button>
+                <el-button 
+                  v-if="canViewStats(act)" 
+                  type="warning" 
+                  size="small" 
+                  @click="handleViewStats(act)">
+                  反馈统计
+                </el-button>
               </div>
             </div>
           </el-card>
@@ -337,12 +351,188 @@
         <el-button type="primary" @click="submitCoHostConfirm">确认</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showFeedbackDialog" title="活动反馈" width="500px">
+      <el-form :model="feedbackForm" label-width="80px">
+        <el-form-item label="评分" required>
+          <el-rate v-model="feedbackForm.rating" :max="5" show-text />
+        </el-form-item>
+        <el-form-item label="反馈内容" required>
+          <el-input 
+            v-model="feedbackForm.feedback" 
+            type="textarea" 
+            :rows="4"
+            placeholder="请输入您对本次活动的评价和建议..."
+            maxlength="500"
+            show-word-limit />
+        </el-form-item>
+      </el-form>
+      <div v-if="feedbackResult.sentiment" class="feedback-result">
+        <el-divider content-position="left">系统分析结果</el-divider>
+        <div class="sentiment-result">
+          <span>情绪标签：</span>
+          <el-tag :type="sentimentType(feedbackResult.sentiment)" size="large">
+            {{ sentimentText(feedbackResult.sentiment) }}
+          </el-tag>
+        </div>
+        <div v-if="feedbackResult.tags && feedbackResult.tags.length > 0" class="tags-result">
+          <span>命中关键词：</span>
+          <el-tag 
+            v-for="tag in feedbackResult.tags" 
+            :key="tag"
+            type="info"
+            size="small"
+            style="margin-right: 5px; margin-bottom: 5px;">
+            {{ tag }}
+          </el-tag>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showFeedbackDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitFeedback">提交反馈</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showStatsDialog" title="反馈情绪统计" width="800px">
+      <div v-if="feedbackStats" class="feedback-stats">
+        <el-row :gutter="20" class="stats-overview">
+          <el-col :span="6">
+            <el-card class="stat-card positive">
+              <div class="stat-label">正面评价</div>
+              <div class="stat-value">{{ feedbackStats.positiveCount }}</div>
+              <div class="stat-percent">{{ feedbackStats.positivePercentage }}%</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card class="stat-card neutral">
+              <div class="stat-label">中性评价</div>
+              <div class="stat-value">{{ feedbackStats.neutralCount }}</div>
+              <div class="stat-percent">{{ feedbackStats.neutralPercentage }}%</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card class="stat-card negative">
+              <div class="stat-label">负面评价</div>
+              <div class="stat-value">{{ feedbackStats.negativeCount }}</div>
+              <div class="stat-percent">{{ feedbackStats.negativePercentage }}%</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card class="stat-card avg">
+              <div class="stat-label">平均评分</div>
+              <div class="stat-value">{{ feedbackStats.averageRating || '-' }}</div>
+              <div class="stat-percent">共 {{ feedbackStats.totalCount }} 条反馈</div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="20" class="mt-20">
+          <el-col :span="12">
+            <el-card header="关键词分布">
+              <div v-if="feedbackStats.tagFrequency && feedbackStats.tagFrequency.length > 0">
+                <div v-for="item in feedbackStats.tagFrequency.slice(0, 10)" :key="item.tag" class="tag-frequency-item">
+                  <span class="tag-name">{{ item.tag }}</span>
+                  <el-progress 
+                    :percentage="Math.min(100, Math.round(item.count / (feedbackStats.tagFrequency[0]?.count || 1) * 100))"
+                    :show-text="false"
+                    style="width: 150px; margin: 0 10px;" />
+                  <span class="tag-count">{{ item.count }} 次</span>
+                </div>
+              </div>
+              <el-empty v-else description="暂无关键词数据" :image-size="100" />
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card header="数据导出">
+              <div class="export-section">
+                <el-form :inline="true">
+                  <el-form-item label="按情绪筛选">
+                    <el-select v-model="exportFilter.sentiment" placeholder="全部" clearable>
+                      <el-option label="正面" value="POSITIVE" />
+                      <el-option label="中性" value="NEUTRAL" />
+                      <el-option label="负面" value="NEGATIVE" />
+                    </el-select>
+                  </el-form-item>
+                </el-form>
+                <el-button type="primary" @click="handleExportFeedback">
+                  <el-icon><Download /></el-icon> 导出 Excel
+                </el-button>
+              </div>
+              <el-divider />
+              <div class="quick-filter-buttons">
+                <el-button size="small" @click="exportFilter.sentiment = 'POSITIVE'">只看正面</el-button>
+                <el-button size="small" @click="exportFilter.sentiment = 'NEUTRAL'">只看中性</el-button>
+                <el-button size="small" @click="exportFilter.sentiment = 'NEGATIVE'">只看负面</el-button>
+                <el-button size="small" @click="exportFilter.sentiment = ''">全部</el-button>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-tabs v-model="statsActiveTab" class="mt-20">
+          <el-tab-pane label="正面评价示例" name="positive">
+            <div v-if="feedbackStats.positiveExamples && feedbackStats.positiveExamples.length > 0">
+              <div v-for="item in feedbackStats.positiveExamples" :key="item.id" class="feedback-example">
+                <div class="example-header">
+                  <span class="user-name">{{ item.real_name || item.username }}</span>
+                  <el-rate :model-value="item.rating" disabled size="small" />
+                  <span v-if="item.tags && item.tags.length > 0" class="example-tags">
+                    <el-tag v-for="tag in item.tags" :key="tag" type="success" size="small" style="margin-left: 3px;">
+                      {{ tag }}
+                    </el-tag>
+                  </span>
+                </div>
+                <div class="example-content">{{ item.feedback }}</div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无正面评价" :image-size="100" />
+          </el-tab-pane>
+          <el-tab-pane label="中性评价示例" name="neutral">
+            <div v-if="feedbackStats.neutralExamples && feedbackStats.neutralExamples.length > 0">
+              <div v-for="item in feedbackStats.neutralExamples" :key="item.id" class="feedback-example">
+                <div class="example-header">
+                  <span class="user-name">{{ item.real_name || item.username }}</span>
+                  <el-rate :model-value="item.rating" disabled size="small" />
+                  <span v-if="item.tags && item.tags.length > 0" class="example-tags">
+                    <el-tag v-for="tag in item.tags" :key="tag" type="info" size="small" style="margin-left: 3px;">
+                      {{ tag }}
+                    </el-tag>
+                  </span>
+                </div>
+                <div class="example-content">{{ item.feedback }}</div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无中性评价" :image-size="100" />
+          </el-tab-pane>
+          <el-tab-pane label="负面评价示例" name="negative">
+            <div v-if="feedbackStats.negativeExamples && feedbackStats.negativeExamples.length > 0">
+              <div v-for="item in feedbackStats.negativeExamples" :key="item.id" class="feedback-example">
+                <div class="example-header">
+                  <span class="user-name">{{ item.real_name || item.username }}</span>
+                  <el-rate :model-value="item.rating" disabled size="small" />
+                  <span v-if="item.tags && item.tags.length > 0" class="example-tags">
+                    <el-tag v-for="tag in item.tags" :key="tag" type="danger" size="small" style="margin-left: 3px;">
+                      {{ tag }}
+                    </el-tag>
+                  </span>
+                </div>
+                <div class="example-content">{{ item.feedback }}</div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无负面评价" :image-size="100" />
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+      <div v-else>
+        <el-empty description="加载中..." />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { Plus, Location, Calendar, InfoFilled } from '@element-plus/icons-vue'
+import { ref, onMounted } from 'vue'
+import { Plus, Location, Calendar, InfoFilled, Download } from '@element-plus/icons-vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../store/user'
@@ -752,6 +942,112 @@ const handleFinish = async (id: number) => {
   }
 }
 
+const showFeedbackDialog = ref(false)
+const feedbackForm = ref({
+  activityId: 0,
+  rating: 5,
+  feedback: ''
+})
+const feedbackResult = ref({
+  sentiment: '',
+  tags: [] as string[]
+})
+
+const showStatsDialog = ref(false)
+const statsActiveTab = ref('positive')
+const feedbackStats = ref<any>(null)
+const exportFilter = ref({
+  sentiment: '',
+  activityId: 0
+})
+
+const canFeedback = (act: any) => {
+  if (!['REGISTERED', 'SIGNED_IN'].includes(act._detail?.myStatus)) return false
+  return act.status === 'FINISHED' || act.status === 'APPROVED'
+}
+
+const canViewStats = (act: any) => {
+  if (userStore.role === 'ADMIN' || userStore.role === 'UNION_ADMIN') return true
+  if (userStore.role === 'CLUB_LEADER' && act.clubId === userStore.userInfo?.clubId) return true
+  return false
+}
+
+const sentimentType = (s: string) => {
+  if (s === 'POSITIVE') return 'success'
+  if (s === 'NEGATIVE') return 'danger'
+  return 'info'
+}
+
+const sentimentText = (s: string) => {
+  const map: any = { POSITIVE: '正面', NEUTRAL: '中性', NEGATIVE: '负面' }
+  return map[s] || s
+}
+
+const handleFeedback = (act: any) => {
+  feedbackForm.value = {
+    activityId: act.id,
+    rating: 5,
+    feedback: ''
+  }
+  feedbackResult.value = { sentiment: '', tags: [] }
+  showFeedbackDialog.value = true
+}
+
+const submitFeedback = async () => {
+  if (!feedbackForm.value.feedback || feedbackForm.value.feedback.trim() === '') {
+    ElMessage.warning('请输入反馈内容')
+    return
+  }
+  try {
+    const res: any = await request.post(`/activities/${feedbackForm.value.activityId}/feedback`, {
+      userId: userStore.userInfo?.id,
+      rating: feedbackForm.value.rating,
+      feedback: feedbackForm.value.feedback
+    })
+    if (res && res.sentiment) {
+      feedbackResult.value = res
+      ElMessage.success('反馈提交成功！系统已自动分析情绪标签')
+      setTimeout(() => {
+        showFeedbackDialog.value = false
+      }, 2000)
+    } else {
+      ElMessage.success('反馈提交成功')
+      showFeedbackDialog.value = false
+    }
+    loadActivityDetail(activities.value.find((a: any) => a.id === feedbackForm.value.activityId)!)
+  } catch (err: any) {
+    console.error('Feedback submission failed:', err)
+    ElMessage.error(err.message || '提交失败')
+  }
+}
+
+const handleViewStats = async (act: any) => {
+  showStatsDialog.value = true
+  feedbackStats.value = null
+  exportFilter.value = { sentiment: '', activityId: act.id }
+  try {
+    const res: any = await request.get(`/activities/${act.id}/feedback-stats`)
+    feedbackStats.value = res
+  } catch (err: any) {
+    console.error('Failed to load feedback stats:', err)
+    ElMessage.error('加载统计数据失败')
+  }
+}
+
+const handleExportFeedback = async () => {
+  try {
+    let url = `/admin/export/feedback?activityId=${exportFilter.value.activityId}`
+    if (exportFilter.value.sentiment) {
+      url += `&sentiment=${exportFilter.value.sentiment}`
+    }
+    window.open(url, '_blank')
+    ElMessage.success('导出任务已开始')
+  } catch (err: any) {
+    console.error('Export failed:', err)
+    ElMessage.error('导出失败')
+  }
+}
+
 const showCoHostConfirmDialog = ref(false)
 const coHostConfirmForm = ref({
   activityId: 0,
@@ -978,5 +1274,138 @@ onMounted(() => {
   width: 80px;
   color: #909399;
   flex-shrink: 0;
+}
+.feedback-result {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+.sentiment-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.tags-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 14px;
+}
+.feedback-stats {
+  padding: 10px 0;
+}
+.stats-overview .stat-card {
+  text-align: center;
+  border: none;
+  transition: transform 0.2s;
+}
+.stats-overview .stat-card:hover {
+  transform: translateY(-2px);
+}
+.stats-overview .stat-card.positive {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f7fa 100%);
+}
+.stats-overview .stat-card.neutral {
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+}
+.stats-overview .stat-card.negative {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
+}
+.stats-overview .stat-card.avg {
+  background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+}
+.stats-overview .stat-label {
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+.stats-overview .stat-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #303133;
+}
+.stats-overview .stat-percent {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
+}
+.stats-overview .positive .stat-value {
+  color: #67c23a;
+}
+.stats-overview .neutral .stat-value {
+  color: #909399;
+}
+.stats-overview .negative .stat-value {
+  color: #f56c6c;
+}
+.stats-overview .avg .stat-value {
+  color: #e6a23c;
+}
+.tag-frequency-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.tag-frequency-item:last-child {
+  border-bottom: none;
+}
+.tag-name {
+  width: 80px;
+  font-size: 13px;
+  color: #606266;
+  font-weight: 500;
+}
+.tag-count {
+  font-size: 12px;
+  color: #909399;
+  min-width: 50px;
+}
+.export-section {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.quick-filter-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.feedback-example {
+  padding: 15px;
+  margin-bottom: 10px;
+  background: #fafafa;
+  border-radius: 4px;
+  border-left: 3px solid #dcdfe6;
+}
+.feedback-example:nth-child(odd) {
+  background: #f5f7fa;
+}
+.example-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.example-header .user-name {
+  font-weight: 600;
+  color: #303133;
+  font-size: 14px;
+}
+.example-tags {
+  margin-left: auto;
+}
+.example-content {
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.mt-20 {
+  margin-top: 20px;
 }
 </style>

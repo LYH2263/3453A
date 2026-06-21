@@ -29,13 +29,100 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="20" class="mt-20">
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <span>反馈情绪分布</span>
+              <el-select v-model="selectedActivityForStats" placeholder="选择活动" clearable @change="loadSentimentStats" size="small">
+                <el-option 
+                  v-for="act in activities" 
+                  :key="act.id" 
+                  :label="act.title" 
+                  :value="act.id" />
+              </el-select>
+            </div>
+          </template>
+          <div v-if="sentimentStats" class="sentiment-stats-inline">
+            <el-row :gutter="15">
+              <el-col :span="8">
+                <div class="mini-stat positive">
+                  <div class="mini-stat-label">正面</div>
+                  <div class="mini-stat-value">{{ sentimentStats.positiveCount }}</div>
+                  <div class="mini-stat-percent">{{ sentimentStats.positivePercentage }}%</div>
+                </div>
+              </el-col>
+              <el-col :span="8">
+                <div class="mini-stat neutral">
+                  <div class="mini-stat-label">中性</div>
+                  <div class="mini-stat-value">{{ sentimentStats.neutralCount }}</div>
+                  <div class="mini-stat-percent">{{ sentimentStats.neutralPercentage }}%</div>
+                </div>
+              </el-col>
+              <el-col :span="8">
+                <div class="mini-stat negative">
+                  <div class="mini-stat-label">负面</div>
+                  <div class="mini-stat-value">{{ sentimentStats.negativeCount }}</div>
+                  <div class="mini-stat-percent">{{ sentimentStats.negativePercentage }}%</div>
+                </div>
+              </el-col>
+            </el-row>
+            <div ref="sentimentChartRef" style="height: 250px; margin-top: 20px;"></div>
+          </div>
+          <el-empty v-else-if="!sentimentLoading" description="选择活动查看情绪统计" />
+          <div v-else style="text-align: center; padding: 40px;">
+            <el-icon class="is-loading" style="font-size: 32px;"><Loading /></el-icon>
+            <p style="margin-top: 10px; color: #909399;">加载中...</p>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card header="数据导出">
+          <div class="export-section">
+            <el-form :model="exportForm" label-width="100px">
+              <el-form-item label="导出类型">
+                <el-radio-group v-model="exportForm.type">
+                  <el-radio value="clubs">社团列表</el-radio>
+                  <el-radio value="activities">活动列表</el-radio>
+                  <el-radio value="logs">操作日志</el-radio>
+                  <el-radio value="feedback">活动反馈</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="按情绪筛选" v-if="exportForm.type === 'feedback'">
+                <el-select v-model="exportForm.sentiment" placeholder="全部" clearable>
+                  <el-option label="正面" value="POSITIVE" />
+                  <el-option label="中性" value="NEUTRAL" />
+                  <el-option label="负面" value="NEGATIVE" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="筛选活动" v-if="exportForm.type === 'feedback'">
+                <el-select v-model="exportForm.activityId" placeholder="全部活动" clearable>
+                  <el-option 
+                    v-for="act in activities" 
+                    :key="act.id" 
+                    :label="act.title" 
+                    :value="act.id" />
+                </el-select>
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" @click="handleExport" :loading="exporting">
+              <el-icon><Download /></el-icon> 导出 Excel
+            </el-button>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, watch } from 'vue'
 import * as echarts from 'echarts'
 import request from '../../utils/request'
+import { ElMessage } from 'element-plus'
+import { Download, Loading } from '@element-plus/icons-vue'
 
 const overview = reactive({
   totalClubs: 0,
@@ -54,10 +141,135 @@ const labels: Record<string, string> = {
 const typeChartRef = ref<HTMLElement | null>(null)
 const trendChartRef = ref<HTMLElement | null>(null)
 const budgetChartRef = ref<HTMLElement | null>(null)
+const sentimentChartRef = ref<HTMLElement | null>(null)
+
+const activities = ref<any[]>([])
+const selectedActivityForStats = ref<number | null>(null)
+const sentimentStats = ref<any>(null)
+const sentimentLoading = ref(false)
+let sentimentChart: echarts.ECharts | null = null
+
+const exportForm = ref({
+  type: 'clubs',
+  sentiment: '',
+  activityId: null as number | null
+})
+const exporting = ref(false)
+
+const loadActivities = async () => {
+  try {
+    const res: any = await request.get('/activities')
+    activities.value = res || []
+  } catch (err) {
+    console.error('Failed to load activities:', err)
+  }
+}
+
+const loadSentimentStats = async (activityId: number | null) => {
+  if (!activityId) {
+    sentimentStats.value = null
+    return
+  }
+  sentimentLoading.value = true
+  try {
+    const res: any = await request.get(`/activities/${activityId}/feedback-stats`)
+    sentimentStats.value = res
+    renderSentimentChart()
+  } catch (err: any) {
+    console.error('Failed to load sentiment stats:', err)
+    ElMessage.error('加载情绪统计失败')
+  } finally {
+    sentimentLoading.value = false
+  }
+}
+
+const renderSentimentChart = () => {
+  if (!sentimentChartRef.value || !sentimentStats.value) return
+  
+  if (sentimentChart) {
+    sentimentChart.dispose()
+  }
+  
+  sentimentChart = echarts.init(sentimentChartRef.value)
+  
+  const data = [
+    { value: sentimentStats.value.positiveCount, name: '正面', itemStyle: { color: '#67C23A' } },
+    { value: sentimentStats.value.neutralCount, name: '中性', itemStyle: { color: '#909399' } },
+    { value: sentimentStats.value.negativeCount, name: '负面', itemStyle: { color: '#F56C6C' } }
+  ]
+  
+  sentimentChart.setOption({
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)'
+    },
+    legend: {
+      bottom: 0,
+      data: ['正面', '中性', '负面']
+    },
+    series: [{
+      name: '情绪分布',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      avoidLabelOverlap: false,
+      itemStyle: {
+        borderRadius: 10,
+        borderColor: '#fff',
+        borderWidth: 2
+      },
+      label: {
+        show: false,
+        position: 'center'
+      },
+      emphasis: {
+        label: {
+          show: true,
+          fontSize: 20,
+          fontWeight: 'bold'
+        }
+      },
+      labelLine: {
+        show: false
+      },
+      data: data
+    }]
+  })
+}
+
+const handleExport = async () => {
+  try {
+    exporting.value = true
+    let url = `/admin/export/${exportForm.value.type}`
+    const params: string[] = []
+    
+    if (exportForm.value.type === 'feedback') {
+      if (exportForm.value.sentiment) {
+        params.push(`sentiment=${exportForm.value.sentiment}`)
+      }
+      if (exportForm.value.activityId) {
+        params.push(`activityId=${exportForm.value.activityId}`)
+      }
+    }
+    
+    if (params.length > 0) {
+      url += `?${params.join('&')}`
+    }
+    
+    window.open(url, '_blank')
+    ElMessage.success('导出任务已开始')
+  } catch (err: any) {
+    console.error('Export failed:', err)
+    ElMessage.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 
 onMounted(async () => {
   const res: any = await request.get('/admin/stat/overview')
   Object.assign(overview, res)
+
+  await loadActivities()
 
   if (typeChartRef.value) {
     const typeRes: any = await request.get('/admin/stat/activity-types')
@@ -157,6 +369,10 @@ onMounted(async () => {
     }
   }
 })
+
+watch(selectedActivityForStats, (newVal) => {
+  loadSentimentStats(newVal)
+})
 </script>
 
 <style scoped>
@@ -165,4 +381,56 @@ onMounted(async () => {
 .stat-label { font-size: 14px; color: #909399; margin-bottom: 10px; }
 .stat-value { font-size: 28px; font-weight: bold; color: #409EFF; }
 .mt-20 { margin-top: 20px; }
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sentiment-stats-inline .mini-stat {
+  text-align: center;
+  padding: 15px;
+  border-radius: 8px;
+  transition: transform 0.2s;
+}
+.sentiment-stats-inline .mini-stat:hover {
+  transform: translateY(-2px);
+}
+.sentiment-stats-inline .mini-stat.positive {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f7fa 100%);
+}
+.sentiment-stats-inline .mini-stat.neutral {
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+}
+.sentiment-stats-inline .mini-stat.negative {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
+}
+.sentiment-stats-inline .mini-stat-label {
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 5px;
+}
+.sentiment-stats-inline .mini-stat-value {
+  font-size: 22px;
+  font-weight: bold;
+}
+.sentiment-stats-inline .positive .mini-stat-value {
+  color: #67c23a;
+}
+.sentiment-stats-inline .neutral .mini-stat-value {
+  color: #909399;
+}
+.sentiment-stats-inline .negative .mini-stat-value {
+  color: #f56c6c;
+}
+.sentiment-stats-inline .mini-stat-percent {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 3px;
+}
+.export-section {
+  padding: 10px 0;
+}
+.export-section :deep(.el-form-item) {
+  margin-bottom: 15px;
+}
 </style>

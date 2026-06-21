@@ -12,6 +12,8 @@ public class ActivityRegistration {
     private String status; // REGISTERED, SIGNED_IN
     private Integer rating;
     private String feedback;
+    private String sentiment; // POSITIVE, NEUTRAL, NEGATIVE
+    private String feedbackTags; // JSON array of matched keywords
     private String reply;
     private Integer waitlistOrder;
 
@@ -37,6 +39,12 @@ public class ActivityRegistration {
 
     public String getFeedback() { return feedback; }
     public void setFeedback(String feedback) { this.feedback = feedback; }
+
+    public String getSentiment() { return sentiment; }
+    public void setSentiment(String sentiment) { this.sentiment = sentiment; }
+
+    public String getFeedbackTags() { return feedbackTags; }
+    public void setFeedbackTags(String feedbackTags) { this.feedbackTags = feedbackTags; }
 
     public String getReply() { return reply; }
     public void setReply(String reply) { this.reply = reply; }

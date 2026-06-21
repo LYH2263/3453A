@@ -135,4 +135,17 @@ public class ActivityController {
     public Result<?> getMyPendingCoHosts() {
         return activityService.getMyPendingCoHosts();
     }
+
+    @GetMapping("/{id}/feedback-stats")
+    public Result<?> getFeedbackStats(@PathVariable Integer id) {
+        return activityService.getActivityFeedbackStats(id);
+    }
+
+    @GetMapping("/feedback/list")
+    public Result<?> getFeedbackList(
+            @RequestParam(required = false) String sentiment,
+            @RequestParam(required = false) Integer activityId,
+            @RequestParam(required = false) Integer clubId) {
+        return activityService.getFeedbackList(sentiment, activityId, clubId);
+    }
 }

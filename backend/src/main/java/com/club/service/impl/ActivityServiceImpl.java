@@ -4,9 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.club.common.Result;
+import com.club.dto.ActivityFeedbackStats;
+import com.club.dto.SentimentAnalysisResult;
 import com.club.entity.*;
 import com.club.mapper.*;
 import com.club.service.ActivityService;
+import com.club.service.SentimentAnalysisService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,13 +23,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> implements ActivityService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ActivityServiceImpl.class);
+
     @Autowired
     private RegistrationMapper registrationMapper;
     @Autowired
@@ -36,6 +45,10 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     private AuditConfigMapper auditConfigMapper;
     @Autowired
     private ActivityCoHostMapper coHostMapper;
+    @Autowired
+    private SentimentAnalysisService sentimentAnalysisService;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private Result<?> checkBudgetLimit(Integer clubId, BigDecimal newBudget, BigDecimal oldBudget, Boolean forceBudget) {
         if (newBudget == null || newBudget.compareTo(BigDecimal.ZERO) <= 0) return null;
@@ -544,8 +557,22 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         if (reg == null) return Result.error("未参与该活动");
         reg.setRating(rating);
         reg.setFeedback(feedback);
+
+        SentimentAnalysisResult analysisResult = sentimentAnalysisService.analyze(feedback);
+        reg.setSentiment(analysisResult.getSentiment());
+        try {
+            String tagsJson = objectMapper.writeValueAsString(analysisResult.getTags());
+            reg.setFeedbackTags(tagsJson);
+        } catch (JsonProcessingException e) {
+            reg.setFeedbackTags(null);
+        }
+
         registrationMapper.updateById(reg);
-        return Result.success(null);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("sentiment", analysisResult.getSentiment());
+        result.put("tags", analysisResult.getTags());
+        return Result.success(result);
     }
 
     @Override
@@ -671,5 +698,138 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         }
 
         return Result.success(result);
+    }
+
+    @Override
+    public Result<ActivityFeedbackStats> getActivityFeedbackStats(Integer activityId) {
+        ActivityFeedbackStats stats = new ActivityFeedbackStats();
+
+        List<Map<String, Object>> sentimentCounts = registrationMapper.countBySentimentForActivity(activityId);
+
+        long positiveCount = 0;
+        long neutralCount = 0;
+        long negativeCount = 0;
+
+        for (Map<String, Object> row : sentimentCounts) {
+            String sentiment = (String) row.get("sentiment");
+            Long count = ((Number) row.get("count")).longValue();
+            if ("POSITIVE".equals(sentiment)) {
+                positiveCount = count;
+            } else if ("NEUTRAL".equals(sentiment)) {
+                neutralCount = count;
+            } else if ("NEGATIVE".equals(sentiment)) {
+                negativeCount = count;
+            }
+        }
+
+        long totalCount = positiveCount + neutralCount + negativeCount;
+
+        stats.setTotalCount(totalCount);
+        stats.setPositiveCount(positiveCount);
+        stats.setNeutralCount(neutralCount);
+        stats.setNegativeCount(negativeCount);
+
+        if (totalCount > 0) {
+            stats.setPositivePercentage(Math.round(positiveCount * 100.0 / totalCount * 10.0) / 10.0);
+            stats.setNeutralPercentage(Math.round(neutralCount * 100.0 / totalCount * 10.0) / 10.0);
+            stats.setNegativePercentage(Math.round(negativeCount * 100.0 / totalCount * 10.0) / 10.0);
+        }
+
+        Double avgRating = registrationMapper.getAverageRatingForActivity(activityId);
+        if (avgRating != null) {
+            stats.setAverageRating(Math.round(avgRating * 10.0) / 10.0);
+        }
+
+        stats.setPositiveExamples(getFeedbackExamples(activityId, "POSITIVE", 10));
+        stats.setNeutralExamples(getFeedbackExamples(activityId, "NEUTRAL", 10));
+        stats.setNegativeExamples(getFeedbackExamples(activityId, "NEGATIVE", 10));
+
+        stats.setTagFrequency(calculateTagFrequency(activityId));
+
+        return Result.success(stats);
+    }
+
+    private List<Map<String, Object>> getFeedbackExamples(Integer activityId, String sentiment, int limit) {
+        List<Map<String, Object>> examples = registrationMapper.getFeedbackExamplesBySentiment(
+                activityId, sentiment, limit);
+        for (Map<String, Object> example : examples) {
+            String tagsJson = (String) example.get("feedback_tags");
+            if (tagsJson != null && !tagsJson.isEmpty()) {
+                try {
+                    JsonNode node = objectMapper.readTree(tagsJson);
+                    List<String> tags = new ArrayList<>();
+                    for (JsonNode tagNode : node) {
+                        tags.add(tagNode.asText());
+                    }
+                    example.put("tags", tags);
+                } catch (JsonProcessingException e) {
+                    example.put("tags", new ArrayList<>());
+                }
+            } else {
+                example.put("tags", new ArrayList<>());
+            }
+        }
+        return examples;
+    }
+
+    private List<Map<String, Object>> calculateTagFrequency(Integer activityId) {
+        List<ActivityRegistration> registrations = registrationMapper.selectList(
+                new LambdaQueryWrapper<ActivityRegistration>()
+                        .eq(ActivityRegistration::getActivityId, activityId)
+                        .isNotNull(ActivityRegistration::getFeedbackTags)
+                        .ne(ActivityRegistration::getFeedbackTags, ""));
+
+        Map<String, Integer> tagCount = new HashMap<>();
+        for (ActivityRegistration reg : registrations) {
+            String tagsJson = reg.getFeedbackTags();
+            if (tagsJson != null && !tagsJson.isEmpty()) {
+                try {
+                    JsonNode node = objectMapper.readTree(tagsJson);
+                    for (JsonNode tagNode : node) {
+                        String tag = tagNode.asText();
+                        tagCount.put(tag, tagCount.getOrDefault(tag, 0) + 1);
+                    }
+                } catch (JsonProcessingException e) {
+                    logger.warn("解析标签失败: {}", tagsJson, e);
+                }
+            }
+        }
+
+        return tagCount.entrySet().stream()
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .limit(15)
+                .map(entry -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("tag", entry.getKey());
+                    item.put("count", entry.getValue());
+                    return item;
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Result<?> getFeedbackList(String sentiment, Integer activityId, Integer clubId) {
+        List<Map<String, Object>> list = registrationMapper.getFeedbackListWithFilters(
+                sentiment, activityId, clubId);
+
+        for (Map<String, Object> item : list) {
+            String tagsJson = (String) item.get("feedback_tags");
+            if (tagsJson != null && !tagsJson.isEmpty()) {
+                try {
+                    JsonNode node = objectMapper.readTree(tagsJson);
+                    List<String> tags = new ArrayList<>();
+                    for (JsonNode tagNode : node) {
+                        tags.add(tagNode.asText());
+                    }
+                    item.put("tags", tags);
+                } catch (JsonProcessingException e) {
+                    item.put("tags", new ArrayList<>());
+                }
+            } else {
+                item.put("tags", new ArrayList<>());
+            }
+        }
+
+        return Result.success(list);
     }
 }

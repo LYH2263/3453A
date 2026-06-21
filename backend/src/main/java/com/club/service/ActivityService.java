@@ -1,7 +1,8 @@
 package com.club.service;
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.club.entity.Activity;
 import com.club.common.Result;
+import com.club.dto.ActivityFeedbackStats;
+import com.club.entity.Activity;
 
 import java.util.List;
 
@@ -22,4 +23,6 @@ public interface ActivityService extends IService<Activity> {
     Result<?> getActivityDetail(Integer activityId, Integer userId);
     Result<?> confirmCoHost(Integer activityId, Integer coHostId, String status, String reason);
     Result<?> getMyPendingCoHosts();
+    Result<ActivityFeedbackStats> getActivityFeedbackStats(Integer activityId);
+    Result<?> getFeedbackList(String sentiment, Integer activityId, Integer clubId);
 }
