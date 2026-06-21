@@ -48,6 +48,33 @@ public class UserController {
         return userService.getNotifications(auth.getName());
     }
 
+    /** 消息通知列表（分页） */
+    @GetMapping("/notifications/list")
+    public Result<?> getNotificationList(
+            Authentication auth,
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize) {
+        return userService.getNotificationList(auth.getName(), pageNum, pageSize);
+    }
+
+    /** 未读通知数量 */
+    @GetMapping("/notifications/unread-count")
+    public Result<?> getUnreadNotificationCount(Authentication auth) {
+        return userService.getUnreadNotificationCount(auth.getName());
+    }
+
+    /** 标记单条通知已读 */
+    @PostMapping("/notifications/{id}/read")
+    public Result<?> markNotificationRead(@PathVariable Integer id, Authentication auth) {
+        return userService.markNotificationRead(auth.getName(), id);
+    }
+
+    /** 标记全部通知已读 */
+    @PostMapping("/notifications/read-all")
+    public Result<?> markAllNotificationsRead(Authentication auth) {
+        return userService.markAllNotificationsRead(auth.getName());
+    }
+
     // ---- 管理员接口 ----
 
 

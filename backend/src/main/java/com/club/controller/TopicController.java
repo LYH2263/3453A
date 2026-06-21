@@ -1,7 +1,9 @@
 package com.club.controller;
 
 import com.club.common.Result;
+import com.club.entity.Comment;
 import com.club.entity.Topic;
+import com.club.service.CommentService;
 import com.club.service.TopicService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,9 @@ public class TopicController {
 
     @Autowired
     private TopicService topicService;
+
+    @Autowired
+    private CommentService commentService;
 
     @GetMapping
     public Result<?> getTopics(@RequestParam(required = false, defaultValue = "IN_CLUB") String type) {
@@ -40,6 +45,17 @@ public class TopicController {
 
     @PostMapping("/{id}/interact")
     public Result<?> interact(@PathVariable Integer id, @RequestBody Map<String, String> body) {
-        return topicService.interact(id, body.get("type")); // LIKE or FAVORITE
+        return topicService.interact(id, body.get("type"));
+    }
+
+    @GetMapping("/{topicId}/comments")
+    public Result<?> getComments(@PathVariable Integer topicId) {
+        return commentService.getCommentsByTopicId(topicId);
+    }
+
+    @PostMapping("/{topicId}/comments")
+    public Result<?> publishComment(@PathVariable Integer topicId, @RequestBody Comment comment) {
+        comment.setTopicId(topicId);
+        return commentService.publishComment(comment);
     }
 }

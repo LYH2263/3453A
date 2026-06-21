@@ -155,6 +155,42 @@ CREATE TABLE IF NOT EXISTS topic_interactions (
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) COMMENT='话题互动表';
 
+-- 评论提及表
+CREATE TABLE IF NOT EXISTS comment_mentions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    comment_id INT NOT NULL COMMENT '评论ID',
+    topic_id INT NOT NULL COMMENT '话题ID',
+    mentioned_user_id INT NOT NULL COMMENT '被@用户ID',
+    mention_type VARCHAR(20) NOT NULL DEFAULT 'USERNAME' COMMENT '提及方式: USERNAME/REALNAME',
+    mention_text VARCHAR(100) NOT NULL COMMENT '提及的原始文本',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    FOREIGN KEY (comment_id) REFERENCES comments(id),
+    FOREIGN KEY (topic_id) REFERENCES topics(id),
+    FOREIGN KEY (mentioned_user_id) REFERENCES users(id),
+    INDEX idx_mentioned_user (mentioned_user_id),
+    INDEX idx_topic (topic_id)
+) COMMENT='评论提及表';
+
+-- 用户通知表
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL COMMENT '接收通知的用户ID',
+    type VARCHAR(30) NOT NULL COMMENT '通知类型: MENTION, REPLY, SYSTEM',
+    topic_id INT DEFAULT NULL COMMENT '关联话题ID',
+    comment_id INT DEFAULT NULL COMMENT '关联评论ID',
+    content TEXT COMMENT '通知内容/预览',
+    trigger_user_id INT DEFAULT NULL COMMENT '触发用户ID',
+    is_read TINYINT(1) DEFAULT 0 COMMENT '是否已读',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    read_time DATETIME DEFAULT NULL COMMENT '阅读时间',
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (topic_id) REFERENCES topics(id),
+    FOREIGN KEY (comment_id) REFERENCES comments(id),
+    FOREIGN KEY (trigger_user_id) REFERENCES users(id),
+    INDEX idx_user_read (user_id, is_read),
+    INDEX idx_user_create (user_id, create_time DESC)
+) COMMENT='用户通知表';
+
 -- 招新信息表
 CREATE TABLE IF NOT EXISTS recruitments (
     id INT AUTO_INCREMENT PRIMARY KEY,

@@ -39,23 +39,64 @@
             <el-button v-if="['ADMIN', 'UNION_ADMIN'].includes(userStore.role || '')" type="warning" plain @click="showTopicAuditDialog = true">审核跨社话题</el-button>
           </div>
           <div class="topic-list" v-if="topics.length">
-            <el-card v-for="t in topics" :key="t.id" class="topic-card mb-20 hover-lift">
+            <el-card v-for="t in topics" :key="t.id" class="topic-card mb-20 hover-lift" @click="toggleTopicDetail(t)">
               <div class="topic-header">
                 <el-avatar :size="40" :src="t.authorAvatar || defaultAvatar" />
                 <div class="topic-info">
                   <div class="author-name">{{ t.authorName }}</div>
                   <div class="topic-meta">{{ formatDate(t.createTime) }} · {{ t.clubName }}</div>
                 </div>
+                <div class="expand-icon">
+                  <el-icon v-if="expandedTopicId === t.id"><ArrowUp /></el-icon>
+                  <el-icon v-else><ArrowDown /></el-icon>
+                </div>
               </div>
               <h3 class="topic-title">{{ t.title }}</h3>
               <p class="topic-content">{{ t.content }}</p>
               <div class="topic-actions">
-                <el-button text :type="t.hasLiked ? 'primary' : ''" @click="interactTopic(t.id, 'LIKE')">
+                <el-button text :type="t.hasLiked ? 'primary' : ''" @click.stop="interactTopic(t.id, 'LIKE')">
                   👍 {{ t.likesCount }}
                 </el-button>
-                <el-button text :type="t.hasFavorited ? 'warning' : ''" @click="interactTopic(t.id, 'FAVORITE')">
+                <el-button text :type="t.hasFavorited ? 'warning' : ''" @click.stop="interactTopic(t.id, 'FAVORITE')">
                   ⭐ {{ t.favoritesCount }}
                 </el-button>
+                <el-button text type="info" @click.stop="toggleTopicDetail(t)">
+                  💬 {{ t.commentsCount || 0 }} 评论
+                </el-button>
+              </div>
+
+              <!-- 评论区展开 -->
+              <div v-if="expandedTopicId === t.id" class="comment-section" @click.stop>
+                <el-divider />
+                <div class="comment-list">
+                  <div v-for="c in commentsMap[t.id] || []" :key="c.id" class="comment-item" :id="'comment-' + c.id">
+                    <el-avatar :size="32" :src="c.authorAvatar || defaultAvatar" class="comment-avatar" />
+                    <div class="comment-body">
+                      <div class="comment-meta">
+                        <span class="comment-author">{{ c.authorName }}</span>
+                        <span class="comment-time">{{ formatDate(c.createTime) }}</span>
+                      </div>
+                      <div class="comment-content">{{ c.content }}</div>
+                      <div class="comment-actions">
+                        <el-button text size="small" @click="replyToComment(c)">回复</el-button>
+                      </div>
+                    </div>
+                  </div>
+                  <el-empty v-if="!commentsMap[t.id] || commentsMap[t.id].length === 0" description="暂无评论，快来抢沙发吧~" :image-size="60" />
+                </div>
+                <div class="comment-input-box mt-15">
+                  <el-input
+                    v-model="commentInputs[t.id]"
+                    type="textarea"
+                    :rows="3"
+                    :placeholder="replyTarget && expandedTopicId === t.id ? '回复 ' + replyTarget.authorName + '：' : '写下你的评论... (支持 @用户名 或 @真实姓名)'"
+                    @keyup.ctrl.enter="submitComment(t.id)"
+                  />
+                  <div class="comment-submit mt-10" style="text-align: right;">
+                    <span style="color: #999; font-size: 12px; margin-right: 10px;">Ctrl+Enter 快捷发送</span>
+                    <el-button type="primary" size="small" @click="submitComment(t.id)">发表评论</el-button>
+                  </div>
+                </div>
               </div>
             </el-card>
           </div>
@@ -242,10 +283,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { useUserStore } from '../store/user'
 import request from '../utils/request'
 import { ElMessage } from 'element-plus'
+import { ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { topicApi } from '../api/topic'
+import { useRoute, useRouter } from 'vue-router'
 
 const userStore = useUserStore()
 const activeTab = ref('announcements')
@@ -332,6 +376,71 @@ const auditTopic = async (id: number, status: string) => {
     loadPendingTopics()
   } catch (err) {
     console.error('Topic audit failed:', err)
+  }
+}
+
+// ---------- Comments
+const expandedTopicId = ref<number | null>(null)
+const commentsMap = ref<Record<number, any[]>>({})
+const commentInputs = ref<Record<number, string>>({})
+const replyTarget = ref<any>(null)
+
+const route = useRoute()
+const router = useRouter()
+
+const toggleTopicDetail = async (topic: any) => {
+  if (expandedTopicId.value === topic.id) {
+    expandedTopicId.value = null
+    replyTarget.value = null
+  } else {
+    expandedTopicId.value = topic.id
+    replyTarget.value = null
+    if (commentInputs.value[topic.id] === undefined) {
+      commentInputs.value[topic.id] = ''
+    }
+    if (!commentsMap.value[topic.id]) {
+      await loadComments(topic.id)
+    }
+  }
+}
+
+const loadComments = async (topicId: number) => {
+  try {
+    const data = await topicApi.getComments(topicId)
+    commentsMap.value[topicId] = data as any[]
+    const topic = topics.value.find(t => t.id === topicId)
+    if (topic) {
+      topic.commentsCount = (data as any[]).length
+    }
+  } catch (err) {
+    console.error('Failed to load comments:', err)
+  }
+}
+
+const submitComment = async (topicId: number) => {
+  const content = commentInputs.value[topicId]?.trim()
+  if (!content) {
+    ElMessage.warning('评论内容不能为空')
+    return
+  }
+  try {
+    const replyId = replyTarget.value?.id
+    await topicApi.publishComment(topicId, content, replyId)
+    ElMessage.success('评论成功')
+    commentInputs.value[topicId] = ''
+    replyTarget.value = null
+    await loadComments(topicId)
+    loadTopics()
+  } catch (err) {
+    console.error('Comment submission failed:', err)
+  }
+}
+
+const replyToComment = (comment: any) => {
+  replyTarget.value = comment
+  const topicId = expandedTopicId.value
+  if (topicId) {
+    commentInputs.value[topicId] = `@${comment.authorName} `
   }
 }
 
@@ -469,9 +578,54 @@ watch(activeTab, (val: string) => {
   else if (val === 'qa') loadQuestions()
 })
 
+const handleRouteQuery = async () => {
+  const query = route.query
+  if (query.tab && typeof query.tab === 'string') {
+    activeTab.value = query.tab
+  }
+  if (query.topicId && typeof query.topicId === 'string') {
+    const topicId = parseInt(query.topicId)
+    if (!isNaN(topicId)) {
+      if (activeTab.value !== 'topics') {
+        activeTab.value = 'topics'
+      }
+      await loadTopics()
+      await nextTick()
+      const topic = topics.value.find(t => t.id === topicId)
+      if (topic) {
+        expandedTopicId.value = topicId
+        await loadComments(topicId)
+        await nextTick()
+        if (query.commentId && typeof query.commentId === 'string') {
+          const commentId = parseInt(query.commentId)
+          if (!isNaN(commentId)) {
+            const commentEl = document.getElementById('comment-' + commentId)
+            if (commentEl) {
+              commentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              commentEl.classList.add('comment-highlight')
+              setTimeout(() => {
+                commentEl.classList.remove('comment-highlight')
+              }, 2000)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 onMounted(() => {
   loadAnnouncements()
+  if (route.query.topicId || route.query.tab) {
+    handleRouteQuery()
+  }
 })
+
+watch(() => route.query, () => {
+  if (route.query.topicId || route.query.tab) {
+    handleRouteQuery()
+  }
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -491,6 +645,27 @@ onMounted(() => {
 .topic-title { font-size: 18px; margin: 0 0 10px; }
 .topic-content { font-size: 14px; color: #444; line-height: 1.6; }
 .topic-actions { margin-top: 15px; display: flex; gap: 20px; }
+.topic-header { position: relative; }
+.expand-icon { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #909399; }
+.comment-section { margin-top: 15px; }
+.comment-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
+.comment-item:last-child { border-bottom: none; }
+.comment-avatar { flex-shrink: 0; }
+.comment-body { flex: 1; min-width: 0; }
+.comment-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.comment-author { font-weight: 600; font-size: 13px; color: #303133; }
+.comment-time { font-size: 12px; color: #909399; }
+.comment-content { font-size: 14px; color: #444; line-height: 1.6; word-break: break-word; }
+.comment-actions { margin-top: 6px; }
+.comment-input-box { padding: 10px; background: #fafafa; border-radius: 8px; }
+.mt-15 { margin-top: 15px; }
+.comment-highlight {
+  animation: highlight 2s ease;
+}
+@keyframes highlight {
+  0%, 100% { background: transparent; }
+  20%, 60% { background: #ecf5ff; }
+}
 
 .border-left-indicator { border-left: 4px solid #409eff; }
 .inactive { border-left: 4px solid #909399; opacity: 0.8;}

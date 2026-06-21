@@ -34,6 +34,17 @@ export const userApi = {
 
     getNotifications: () => request.get('/user/notifications'),
 
+    getNotificationList: (params?: { pageNum?: number; pageSize?: number }) =>
+        request.get('/user/notifications/list', { params }),
+
+    getUnreadNotificationCount: () => request.get('/user/notifications/unread-count'),
+
+    markNotificationRead: (id: number) =>
+        request.post(`/user/notifications/${id}/read`),
+
+    markAllNotificationsRead: () =>
+        request.post('/user/notifications/read-all'),
+
     // 管理员接口
     listUsers: (params?: { pageNum?: number; pageSize?: number }) =>
         request.get('/user/list', { params }),

@@ -9,11 +9,17 @@ import com.club.dto.LoginDTO;
 import com.club.dto.RegisterDTO;
 import com.club.dto.ResetPasswordDTO;
 import com.club.dto.UpdateProfileDTO;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.club.entity.Activity;
 import com.club.entity.ActivityRegistration;
+import com.club.entity.Topic;
 import com.club.entity.User;
+import com.club.entity.UserNotification;
 import com.club.mapper.ActivityMapper;
 import com.club.mapper.RegistrationMapper;
+import com.club.mapper.TopicMapper;
+import com.club.mapper.UserNotificationMapper;
 import com.club.mapper.UserMapper;
 import com.club.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +27,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.time.LocalDateTime;
 
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
@@ -33,6 +40,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private ActivityMapper activityMapper;
     @Autowired
     private RegistrationMapper registrationMapper;
+    @Autowired
+    private UserNotificationMapper userNotificationMapper;
+    @Autowired
+    private TopicMapper topicMapper;
 
     @Override
     public Result<?> login(LoginDTO loginDTO) {
@@ -238,6 +249,121 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             notifications.add(item);
         }
         return Result.success(notifications);
+    }
+
+    @Override
+    public Result<?> getNotificationList(String username, Integer pageNum, Integer pageSize) {
+        User user = this.getOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username));
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+
+        IPage<UserNotification> page = userNotificationMapper.selectPage(
+                new Page<>(pageNum, pageSize),
+                new LambdaQueryWrapper<UserNotification>()
+                        .eq(UserNotification::getUserId, user.getId())
+                        .orderByDesc(UserNotification::getCreateTime));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (UserNotification n : page.getRecords()) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", n.getId());
+            item.put("type", n.getType());
+            item.put("topicId", n.getTopicId());
+            item.put("commentId", n.getCommentId());
+            item.put("content", n.getContent());
+            item.put("isRead", n.getIsRead());
+            item.put("createTime", n.getCreateTime());
+            item.put("triggerUserId", n.getTriggerUserId());
+
+            if (n.getTriggerUserId() != null) {
+                User triggerUser = userMapper.selectById(n.getTriggerUserId());
+                if (triggerUser != null) {
+                    item.put("triggerUserName", triggerUser.getRealName());
+                    item.put("triggerUserAvatar", triggerUser.getAvatar());
+                }
+            }
+
+            if (n.getTopicId() != null) {
+                Topic topic = topicMapper.selectById(n.getTopicId());
+                if (topic != null) {
+                    item.put("topicTitle", topic.getTitle());
+                }
+            }
+
+            result.add(item);
+        }
+
+        Map<String, Object> pageData = new HashMap<>();
+        pageData.put("list", result);
+        pageData.put("total", page.getTotal());
+        pageData.put("pageNum", page.getCurrent());
+        pageData.put("pageSize", page.getSize());
+        return Result.success(pageData);
+    }
+
+    @Override
+    public Result<?> getUnreadNotificationCount(String username) {
+        User user = this.getOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username));
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+
+        long count = userNotificationMapper.selectCount(
+                new LambdaQueryWrapper<UserNotification>()
+                        .eq(UserNotification::getUserId, user.getId())
+                        .eq(UserNotification::getIsRead, 0));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("unreadCount", count);
+        return Result.success(result);
+    }
+
+    @Override
+    public Result<?> markNotificationRead(String username, Integer notificationId) {
+        User user = this.getOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username));
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+
+        UserNotification notification = userNotificationMapper.selectById(notificationId);
+        if (notification == null) {
+            return Result.error("通知不存在");
+        }
+        if (!notification.getUserId().equals(user.getId())) {
+            return Result.error("无权限操作");
+        }
+
+        notification.setIsRead(1);
+        notification.setReadTime(LocalDateTime.now());
+        userNotificationMapper.updateById(notification);
+        return Result.success(null);
+    }
+
+    @Override
+    public Result<?> markAllNotificationsRead(String username) {
+        User user = this.getOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username));
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+
+        List<UserNotification> unreadList = userNotificationMapper.selectList(
+                new LambdaQueryWrapper<UserNotification>()
+                        .eq(UserNotification::getUserId, user.getId())
+                        .eq(UserNotification::getIsRead, 0));
+
+        LocalDateTime now = LocalDateTime.now();
+        for (UserNotification n : unreadList) {
+            n.setIsRead(1);
+            n.setReadTime(now);
+            userNotificationMapper.updateById(n);
+        }
+
+        return Result.success(null);
     }
 
     @Override

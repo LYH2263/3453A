@@ -17,6 +17,10 @@ public interface UserService extends IService<User> {
     Result<?> getMyActivities(String username);
     Result<?> getMyInteractions(String username);
     Result<?> getNotifications(String username);
+    Result<?> getNotificationList(String username, Integer pageNum, Integer pageSize);
+    Result<?> getUnreadNotificationCount(String username);
+    Result<?> markNotificationRead(String username, Integer notificationId);
+    Result<?> markAllNotificationsRead(String username);
     Result<?> updateRole(Integer userId, String role);
     java.util.List<User> listUsers();
 }
