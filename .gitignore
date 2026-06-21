@@ -1,0 +1,63 @@
+# Maven
+target/
+*.jar
+*.war
+*.ear
+*.class
+
+# Node / Frontend (Vite + Vue)
+node_modules/
+dist/
+build/
+.npm
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log
+*.tsbuildinfo
+
+# Vite / Vue 本地缓存
+.vite/
+.cache/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs & runtime
+logs/
+*.log
+uploads/
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 考题与对话记录
+迭代.md
+代码生成.md
+题目.md
+对话/
