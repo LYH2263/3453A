@@ -93,6 +93,45 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
     }
 
     @Override
+    public Result<?> getTopicById(Integer id) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return Result.error("未认证");
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, auth.getName()));
+
+        Topic topic = this.getById(id);
+        if (topic == null) return Result.error("话题不存在");
+
+        if (!canViewTopic(user, topic)) {
+            return Result.error("无权限查看该话题");
+        }
+
+        List<Topic> single = new ArrayList<>();
+        single.add(topic);
+        Result<?> enriched = enrichResult(single, user);
+        List<Map<String, Object>> list = (List<Map<String, Object>>) enriched.getData();
+        if (list != null && !list.isEmpty()) {
+            return Result.success(list.get(0));
+        }
+        return Result.error("话题不存在");
+    }
+
+    private boolean canViewTopic(User user, Topic topic) {
+        if (user == null || topic == null) return false;
+        if (RoleConstants.ADMIN.equals(user.getRole()) || RoleConstants.UNION_ADMIN.equals(user.getRole())) {
+            return true;
+        }
+        if ("CROSS_CLUB".equals(topic.getType())) {
+            return true;
+        }
+        if ("IN_CLUB".equals(topic.getType())) {
+            if (topic.getClubId() == null) return false;
+            if (user.getClubId() == null) return false;
+            return topic.getClubId().equals(user.getClubId());
+        }
+        return false;
+    }
+
+    @Override
     public Result<?> getPendingTopics() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return Result.error("未认证");

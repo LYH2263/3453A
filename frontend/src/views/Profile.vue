@@ -95,25 +95,56 @@
             <!-- 消息通知 -->
             <el-tab-pane name="notifications">
               <template #label>
-                <el-badge :value="notifications.length" :hidden="!notifications.length" type="danger">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" type="danger">
                   消息通知
                 </el-badge>
               </template>
-              <el-empty v-if="!notifications.length" description="暂无消息" />
+              <div class="notification-toolbar mb-15" v-if="unreadCount > 0">
+                <el-button size="small" type="primary" plain @click="markAllNotificationsRead">全部标记已读</el-button>
+              </div>
+              <el-empty v-if="!notificationList.length" description="暂无消息" />
               <el-timeline v-else>
                 <el-timeline-item
-                  v-for="(n, i) in notifications"
-                  :key="i"
-                  :timestamp="formatDate(n.time)"
+                  v-for="n in notificationList"
+                  :key="n.id"
+                  :timestamp="formatDate(n.createTime)"
                   placement="top"
-                  type="primary"
+                  :type="n.isRead === 0 ? 'primary' : 'info'"
                 >
-                  <el-card>
-                    <p class="notif-title">活动「{{ n.activityTitle }}」有新回复</p>
+                  <el-card
+                    class="notif-card"
+                    :class="{ 'unread': n.isRead === 0 }"
+                    @click="handleNotificationClick(n)"
+                    shadow="hover"
+                  >
+                    <div class="notif-header">
+                      <el-avatar v-if="n.triggerUserAvatar" :size="32" :src="n.triggerUserAvatar" />
+                      <el-avatar v-else :size="32" icon="User" />
+                      <div class="notif-title-wrap">
+                        <p class="notif-title">
+                          <span class="notif-trigger">{{ n.triggerUserName || '系统' }}</span>
+                          <el-tag v-if="n.type === 'MENTION'" type="primary" size="small">@了你</el-tag>
+                          <el-tag v-else-if="n.type === 'REPLY'" type="success" size="small">回复了你</el-tag>
+                          <el-tag v-else type="info" size="small">系统消息</el-tag>
+                          <span class="unread-dot" v-if="n.isRead === 0"></span>
+                        </p>
+                        <p class="notif-topic" v-if="n.topicTitle">《{{ n.topicTitle }}》</p>
+                      </div>
+                    </div>
                     <p class="notif-content">{{ n.content }}</p>
                   </el-card>
                 </el-timeline-item>
               </el-timeline>
+              <div class="pagination-wrap mt-20" v-if="notificationTotal > pageSize">
+                <el-pagination
+                  background
+                  layout="prev, pager, next"
+                  :total="notificationTotal"
+                  :page-size="pageSize"
+                  :current-page="pageNum"
+                  @current-change="handlePageChange"
+                />
+              </div>
             </el-tab-pane>
 
             <!-- 我的徽章 -->
@@ -168,12 +199,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { userApi } from '../api/user'
 import { badgeApi } from '../api/badge'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Medal } from '@element-plus/icons-vue'
+import { ChatDotRound, Medal, User } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 
+const router = useRouter()
 const activeTab = ref('edit')
 const saving = ref(false)
 const defaultAvatar = 'https://cube.elemecdn.com/3/7c/3ea0722952d4a0e3e8b0e8e8e8e8e.png'
@@ -183,6 +216,12 @@ const myActivities = ref<any[]>([])
 const myInteractions = ref<any[]>([])
 const notifications = ref<any[]>([])
 const myBadges = ref<any[]>([])
+
+const notificationList = ref<any[]>([])
+const notificationTotal = ref(0)
+const unreadCount = ref(0)
+const pageNum = ref(1)
+const pageSize = ref(20)
 
 const editFormRef = ref<FormInstance>()
 const editForm = reactive({ realName: '', studentId: '', avatar: '' })
@@ -223,10 +262,55 @@ async function loadInteractions() {
 
 async function loadNotifications() {
   try {
-    notifications.value = (await userApi.getNotifications()) as any
+    const [listData, countData] = await Promise.all([
+      userApi.getNotificationList({ pageNum: pageNum.value, pageSize: pageSize.value }) as any,
+      userApi.getUnreadNotificationCount() as any
+    ])
+    notificationList.value = listData.list || []
+    notificationTotal.value = listData.total || 0
+    unreadCount.value = countData.unreadCount || 0
   } catch (err) {
     console.error('Failed to fetch notifications:', err)
   }
+}
+
+async function markAllNotificationsRead() {
+  try {
+    await userApi.markAllNotificationsRead()
+    unreadCount.value = 0
+    notificationList.value.forEach(item => { item.isRead = 1 })
+    ElMessage.success('已全部标记为已读')
+  } catch (err) {
+    console.error('Failed to mark all read:', err)
+  }
+}
+
+async function handleNotificationClick(item: any) {
+  if (item.isRead === 0) {
+    try {
+      await userApi.markNotificationRead(item.id)
+      item.isRead = 1
+      unreadCount.value = Math.max(0, unreadCount.value - 1)
+    } catch (err) {
+      console.error('Failed to mark read:', err)
+    }
+  }
+
+  if (item.topicId) {
+    router.push({
+      path: '/interaction',
+      query: {
+        tab: 'topics',
+        topicId: item.topicId,
+        commentId: item.commentId
+      }
+    })
+  }
+}
+
+function handlePageChange(pn: number) {
+  pageNum.value = pn
+  loadNotifications()
 }
 
 async function loadMyBadges() {
@@ -359,6 +443,59 @@ function formatDate(dt: string) {
 .notif-title { font-weight: 600; margin-bottom: 4px; }
 .notif-content { color: #606266; font-size: 14px; }
 .text-muted { color: #c0c4cc; font-size: 12px; }
+.mb-15 { margin-bottom: 15px; }
+.mt-20 { margin-top: 20px; }
+
+.notification-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+.notif-card {
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.notif-card.unread {
+  background: #ecf5ff;
+  border-color: #d9ecff;
+}
+.notif-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.notif-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.notif-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  position: relative;
+}
+.notif-trigger {
+  font-weight: 600;
+  color: #303133;
+}
+.notif-topic {
+  margin: 0;
+  font-size: 12px;
+  color: #909399;
+}
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f56c6c;
+  display: inline-block;
+}
+.pagination-wrap {
+  display: flex;
+  justify-content: center;
+}
 
 .my-badges-grid {
   display: flex;

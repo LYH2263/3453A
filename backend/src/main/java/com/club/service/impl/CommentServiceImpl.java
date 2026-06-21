@@ -125,7 +125,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         List<UserNotification> notifications = new ArrayList<>();
 
         for (String text : mentionTexts) {
-            User mentionedUser = findUserByMention(text);
+            User mentionedUser = findUserByMention(text, topic);
             if (mentionedUser == null) continue;
             if (mentionedUser.getId().equals(currentUser.getId())) continue;
             if (mentionedUserIds.contains(mentionedUser.getId())) continue;
@@ -164,16 +164,27 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         }
     }
 
-    private User findUserByMention(String text) {
+    private User findUserByMention(String text, Topic topic) {
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, text)
                 .last("LIMIT 1"));
         if (user != null) return user;
 
-        user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getRealName, text)
-                .last("LIMIT 1"));
-        return user;
+        List<User> candidates = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getRealName, text));
+
+        if (candidates.isEmpty()) return null;
+        if (candidates.size() == 1) return candidates.get(0);
+
+        if (topic != null && topic.getClubId() != null) {
+            for (User u : candidates) {
+                if (topic.getClubId().equals(u.getClubId())) {
+                    return u;
+                }
+            }
+        }
+
+        return null;
     }
 
     private String determineMentionType(String text, User user) {

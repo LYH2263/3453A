@@ -621,16 +621,38 @@ const handleRouteQuery = async () => {
       if (activeTab.value !== 'topics') {
         activeTab.value = 'topics'
       }
+
+      let topicDetail: any = null
+      try {
+        topicDetail = await topicApi.getTopicById(topicId)
+      } catch (err) {
+        console.error('Failed to fetch topic detail:', err)
+      }
+
+      if (topicDetail && topicDetail.type && topicDetail.type !== topicFilter.value) {
+        topicFilter.value = topicDetail.type
+      }
+
       await loadTopics()
       await nextTick()
-      const topic = topics.value.find(t => t.id === topicId)
+
+      let topic = topics.value.find(t => t.id === topicId)
+      if (!topic && topicDetail) {
+        topics.value.unshift(topicDetail)
+        topic = topicDetail
+      }
+
       if (topic) {
+        if (commentInputs.value[topic.id] === undefined) {
+          commentInputs.value[topic.id] = ''
+        }
         expandedTopicId.value = topicId
         await loadComments(topicId)
         await nextTick()
         if (query.commentId && typeof query.commentId === 'string') {
           const commentId = parseInt(query.commentId)
           if (!isNaN(commentId)) {
+            await nextTick()
             const commentEl = document.getElementById('comment-' + commentId)
             if (commentEl) {
               commentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })

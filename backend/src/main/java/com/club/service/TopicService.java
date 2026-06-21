@@ -7,6 +7,7 @@ import com.club.entity.Topic;
 public interface TopicService extends IService<Topic> {
     Result<?> publishTopic(Topic topic);
     Result<?> getTopics(String type);
+    Result<?> getTopicById(Integer id);
     Result<?> getPendingTopics();
     Result<?> auditTopic(Integer id, String status);
     Result<?> interact(Integer id, String type); // type: LIKE, FAVORITE

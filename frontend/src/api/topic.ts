@@ -15,6 +15,9 @@ export const topicApi = {
     interactTopic: (id: number, type: string) =>
         request.post(`/topics/${id}/interact`, { type }),
 
+    getTopicById: (id: number) =>
+        request.get(`/topics/${id}`),
+
     getComments: (topicId: number) =>
         request.get(`/topics/${topicId}/comments`),
 

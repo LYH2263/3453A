@@ -26,6 +26,11 @@ public class TopicController {
         return topicService.getTopics(type);
     }
 
+    @GetMapping("/{id}")
+    public Result<?> getTopicById(@PathVariable Integer id) {
+        return topicService.getTopicById(id);
+    }
+
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('ADMIN', 'UNION_ADMIN')")
     public Result<?> getPendingTopics() {
