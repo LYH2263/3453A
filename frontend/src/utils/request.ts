@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 
 const instance = axios.create({
     baseURL: '/api',
-    timeout: 10000
+    timeout: 30000
 })
 
 instance.interceptors.request.use(
@@ -22,6 +22,10 @@ instance.interceptors.request.use(
 
 instance.interceptors.response.use(
     (response) => {
+        const contentType = String(response.headers['content-type'] || '')
+        if (response.config.responseType === 'blob' || contentType.includes('application/vnd.openxmlformats') || contentType.includes('application/octet-stream')) {
+            return response
+        }
         const res = response.data
         if (res.code !== 200) {
             ElMessage.error(res.message || '操作失败')
@@ -41,6 +45,11 @@ instance.interceptors.response.use(
                 message = '没有权限访问该资源'
             } else if (data && data.message) {
                 message = data.message
+            } else if (typeof data === 'string' && data.includes('code')) {
+                try {
+                    const parsed = JSON.parse(data)
+                    if (parsed.message) message = parsed.message
+                } catch (_) {}
             }
         } else if (error.message && error.message.includes('timeout')) {
             message = '请求超时'
@@ -49,5 +58,29 @@ instance.interceptors.response.use(
         return Promise.reject(error)
     }
 )
+
+export function downloadFile(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+}
+
+export function getFilenameFromContentDisposition(disposition: string | null, defaultName: string): string {
+    if (!disposition) return defaultName
+    const utf8Match = disposition.match(/filename\*=utf-8''([^;]+)/i)
+    if (utf8Match && utf8Match[1]) {
+        try {
+            return decodeURIComponent(utf8Match[1])
+        } catch (_) {}
+    }
+    const match = disposition.match(/filename="?([^";]+)"?/i)
+    if (match && match[1]) return match[1]
+    return defaultName
+}
 
 export default instance

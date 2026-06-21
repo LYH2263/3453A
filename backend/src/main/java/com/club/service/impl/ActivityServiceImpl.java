@@ -725,6 +725,24 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
 
     @Override
     public Result<ActivityFeedbackStats> getActivityFeedbackStats(Integer activityId) {
+        User currentUser = getCurrentUser();
+        if (currentUser == null) {
+            return Result.error(401, "未登录");
+        }
+        String role = currentUser.getRole();
+        boolean isAdmin = com.club.common.RoleConstants.ADMIN.equals(role)
+                || com.club.common.RoleConstants.UNION_ADMIN.equals(role);
+        boolean isLeader = com.club.common.RoleConstants.CLUB_LEADER.equals(role);
+        if (!isAdmin && !isLeader) {
+            return Result.error(403, "仅负责人可查看反馈统计");
+        }
+        Activity activity = this.getById(activityId);
+        if (activity == null) {
+            return Result.error("活动不存在");
+        }
+        if (isLeader && !activity.getClubId().equals(currentUser.getClubId())) {
+            return Result.error(403, "仅可查看本社团的反馈统计");
+        }
         ActivityFeedbackStats stats = new ActivityFeedbackStats();
 
         List<Map<String, Object>> sentimentCounts = registrationMapper.countBySentimentForActivity(activityId);
@@ -832,8 +850,36 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
 
     @Override
     public Result<?> getFeedbackList(String sentiment, Integer activityId, Integer clubId) {
+        User currentUser = getCurrentUser();
+        if (currentUser == null) {
+            return Result.error(401, "未登录");
+        }
+        String role = currentUser.getRole();
+        boolean isAdmin = com.club.common.RoleConstants.ADMIN.equals(role)
+                || com.club.common.RoleConstants.UNION_ADMIN.equals(role);
+        boolean isLeader = com.club.common.RoleConstants.CLUB_LEADER.equals(role);
+        if (!isAdmin && !isLeader) {
+            return Result.error(403, "仅负责人可查看反馈数据");
+        }
+        Integer filterClubId = clubId;
+        if (isLeader) {
+            if (filterClubId == null) {
+                filterClubId = currentUser.getClubId();
+            } else if (!filterClubId.equals(currentUser.getClubId())) {
+                return Result.error(403, "仅可查看本社团的反馈数据");
+            }
+        }
+        if (activityId != null) {
+            Activity activity = this.getById(activityId);
+            if (activity == null) {
+                return Result.error("活动不存在");
+            }
+            if (isLeader && !activity.getClubId().equals(currentUser.getClubId())) {
+                return Result.error(403, "仅可查看本社团的反馈数据");
+            }
+        }
         List<Map<String, Object>> list = registrationMapper.getFeedbackListWithFilters(
-                sentiment, activityId, clubId);
+                sentiment, activityId, filterClubId);
 
         for (Map<String, Object> item : list) {
             String tagsJson = (String) item.get("feedback_tags");
@@ -925,5 +971,11 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
                 return null;
             }
         }
+    }
+
+    private User getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return null;
+        return userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, auth.getName()));
     }
 }

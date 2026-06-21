@@ -587,8 +587,8 @@
                     </el-select>
                   </el-form-item>
                 </el-form>
-                <el-button type="primary" @click="handleExportFeedback">
-                  <el-icon><Download /></el-icon> 导出 Excel
+                <el-button type="primary" :loading="exporting" @click="handleExportFeedback">
+                  <el-icon v-if="!exporting"><Download /></el-icon> 导出 Excel
                 </el-button>
               </div>
               <el-divider />
@@ -666,7 +666,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { Plus, Location, Calendar, InfoFilled, Download, List, Clock } from '@element-plus/icons-vue'
-import request from '../utils/request'
+import request, { downloadFile, getFilenameFromContentDisposition } from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../store/user'
 
@@ -1291,6 +1291,7 @@ const feedbackResult = ref({
 const showStatsDialog = ref(false)
 const statsActiveTab = ref('positive')
 const feedbackStats = ref<any>(null)
+const exporting = ref(false)
 const exportFilter = ref({
   sentiment: '',
   activityId: 0
@@ -1370,16 +1371,39 @@ const handleViewStats = async (act: any) => {
 }
 
 const handleExportFeedback = async () => {
+  if (exporting.value) return
+  exporting.value = true
   try {
-    let url = `/admin/export/feedback?activityId=${exportFilter.value.activityId}`
+    const params = new URLSearchParams()
+    params.append('activityId', String(exportFilter.value.activityId))
     if (exportFilter.value.sentiment) {
-      url += `&sentiment=${exportFilter.value.sentiment}`
+      params.append('sentiment', exportFilter.value.sentiment)
     }
-    window.open(url, '_blank')
-    ElMessage.success('导出任务已开始')
+    const resp: any = await request.get(`/admin/export/feedback?${params.toString()}`, {
+      responseType: 'blob'
+    })
+    const disposition = resp.headers?.['content-disposition'] || null
+    const filename = getFilenameFromContentDisposition(disposition, '活动反馈.xlsx')
+    const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data])
+    if (blob.size < 100) {
+      const text = await blob.text()
+      if (text.includes('code') && text.includes('message')) {
+        try {
+          const err = JSON.parse(text)
+          ElMessage.error(err.message || '导出失败')
+          return
+        } catch (_) {}
+      }
+    }
+    downloadFile(blob, filename)
+    ElMessage.success('导出成功')
   } catch (err: any) {
     console.error('Export failed:', err)
-    ElMessage.error('导出失败')
+    if (!err?.message?.includes('权限') && !err?.message?.includes('403')) {
+      ElMessage.error('导出失败，请稍后重试')
+    }
+  } finally {
+    exporting.value = false
   }
 }
 

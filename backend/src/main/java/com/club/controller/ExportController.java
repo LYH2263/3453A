@@ -2,18 +2,26 @@ package com.club.controller;
 
 import com.alibaba.excel.EasyExcel;
 import com.alibaba.excel.annotation.ExcelProperty;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.club.common.Result;
 import com.club.common.annotation.Log;
 import com.club.entity.Activity;
 import com.club.entity.Club;
 import com.club.entity.OperationLog;
+import com.club.entity.User;
+import com.club.mapper.UserMapper;
 import com.club.service.ActivityService;
 import com.club.service.AdminLogService;
 import com.club.service.ClubService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -43,6 +51,18 @@ public class ExportController {
 
     @Autowired
     private AdminLogService adminLogService;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private User getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return null;
+        return userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, auth.getName()));
+    }
 
     /**
      * 导出全校社团 Excel 报表
@@ -100,21 +120,59 @@ public class ExportController {
             @RequestParam(required = false) String sentiment,
             @RequestParam(required = false) Integer activityId,
             @RequestParam(required = false) Integer clubId) throws IOException {
+        User currentUser = getCurrentUser();
+        if (currentUser == null) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
+
+        String role = currentUser.getRole();
+        boolean isAdmin = "ADMIN".equals(role) || "UNION_ADMIN".equals(role);
+        boolean isLeader = "CLUB_LEADER".equals(role);
+
+        if (!isAdmin && !isLeader) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+
+        Integer filterClubId = clubId;
+        if (isLeader) {
+            if (filterClubId == null) {
+                filterClubId = currentUser.getClubId();
+            } else if (!filterClubId.equals(currentUser.getClubId())) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+        }
+
+        if (activityId != null) {
+            Activity activity = activityService.getById(activityId);
+            if (activity != null && isLeader && !activity.getClubId().equals(currentUser.getClubId())) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+        }
+
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setCharacterEncoding("utf-8");
 
         StringBuilder fileNameBuilder = new StringBuilder("活动反馈");
         if (sentiment != null && !sentiment.isEmpty()) {
-            fileNameBuilder.append("_").append(sentiment);
+            fileNameBuilder.append("_").append(getSentimentText(sentiment));
         }
         String fileName = URLEncoder.encode(fileNameBuilder.toString(), StandardCharsets.UTF_8).replaceAll("\\+", "%20");
         response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
 
-        Result<?> result = activityService.getFeedbackList(sentiment, activityId, clubId);
+        Result<?> result = activityService.getFeedbackList(sentiment, activityId, filterClubId);
+        if (result.getCode() != 200 || result.getData() == null) {
+            EasyExcel.write(response.getOutputStream(), FeedbackExportVO.class)
+                    .sheet("反馈列表").doWrite(new ArrayList<>());
+            return;
+        }
+
         List<Map<String, Object>> data = (List<Map<String, Object>>) result.getData();
 
         List<FeedbackExportVO> exportList = new ArrayList<>();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
         for (Map<String, Object> item : data) {
             FeedbackExportVO vo = new FeedbackExportVO();
@@ -133,7 +191,24 @@ public class ExportController {
             String sentimentValue = (String) item.get("sentiment");
             vo.setSentiment(sentimentValue != null ? getSentimentText(sentimentValue) : "未分析");
 
-            List<String> tags = (List<String>) item.get("tags");
+            List<String> tags = null;
+            Object tagsObj = item.get("tags");
+            if (tagsObj instanceof List) {
+                tags = (List<String>) tagsObj;
+            } else {
+                String tagsJson = (String) item.get("feedback_tags");
+                if (tagsJson != null && !tagsJson.isEmpty()) {
+                    try {
+                        JsonNode node = objectMapper.readTree(tagsJson);
+                        tags = new ArrayList<>();
+                        for (JsonNode tagNode : node) {
+                            tags.add(tagNode.asText());
+                        }
+                    } catch (JsonProcessingException e) {
+                        tags = new ArrayList<>();
+                    }
+                }
+            }
             if (tags != null && !tags.isEmpty()) {
                 vo.setTags(String.join(", ", tags));
             } else {

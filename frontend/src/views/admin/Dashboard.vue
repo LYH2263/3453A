@@ -120,7 +120,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, watch } from 'vue'
 import * as echarts from 'echarts'
-import request from '../../utils/request'
+import request, { downloadFile, getFilenameFromContentDisposition } from '../../utils/request'
 import { ElMessage } from 'element-plus'
 import { Download, Loading } from '@element-plus/icons-vue'
 
@@ -240,26 +240,49 @@ const handleExport = async () => {
   try {
     exporting.value = true
     let url = `/admin/export/${exportForm.value.type}`
-    const params: string[] = []
+    const queryParams = new URLSearchParams()
     
     if (exportForm.value.type === 'feedback') {
       if (exportForm.value.sentiment) {
-        params.push(`sentiment=${exportForm.value.sentiment}`)
+        queryParams.append('sentiment', exportForm.value.sentiment)
       }
       if (exportForm.value.activityId) {
-        params.push(`activityId=${exportForm.value.activityId}`)
+        queryParams.append('activityId', String(exportForm.value.activityId))
       }
     }
     
-    if (params.length > 0) {
-      url += `?${params.join('&')}`
+    const queryString = queryParams.toString()
+    if (queryString) url += `?${queryString}`
+    
+    const resp: any = await request.get(url, { responseType: 'blob' })
+    const defaultNames: Record<string, string> = {
+      clubs: '社团列表.xlsx',
+      activities: '活动列表.xlsx',
+      logs: '操作日志.xlsx',
+      feedback: '活动反馈.xlsx'
+    }
+    const disposition = resp.headers?.['content-disposition'] || null
+    const filename = getFilenameFromContentDisposition(disposition, defaultNames[exportForm.value.type] || '导出文件.xlsx')
+    const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data])
+    
+    if (blob.size < 100) {
+      const text = await blob.text()
+      if (text.includes('code') && text.includes('message')) {
+        try {
+          const err = JSON.parse(text)
+          ElMessage.error(err.message || '导出失败')
+          return
+        } catch (_) {}
+      }
     }
     
-    window.open(url, '_blank')
-    ElMessage.success('导出任务已开始')
+    downloadFile(blob, filename)
+    ElMessage.success('导出成功')
   } catch (err: any) {
     console.error('Export failed:', err)
-    ElMessage.error('导出失败')
+    if (!err?.message?.includes('权限') && !err?.message?.includes('403')) {
+      ElMessage.error('导出失败，请稍后重试')
+    }
   } finally {
     exporting.value = false
   }
