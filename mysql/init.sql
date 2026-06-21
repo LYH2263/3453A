@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS activities (
     max_count INT NOT NULL DEFAULT 50 COMMENT '人数限制',
     budget DECIMAL(10, 2) DEFAULT 0.00 COMMENT '预算',
     process TEXT COMMENT '活动流程',
-    status ENUM('PENDING_UNION', 'PENDING_SCHOOL', 'APPROVED', 'REJECTED', 'FINISHED') NOT NULL DEFAULT 'PENDING_UNION' COMMENT '状态',
+    status ENUM('DRAFT_COCONFIRM', 'PENDING_UNION', 'PENDING_SCHOOL', 'APPROVED', 'REJECTED', 'FINISHED') NOT NULL DEFAULT 'PENDING_UNION' COMMENT '状态: DRAFT_COCONFIRM-合作社团确认中, PENDING_UNION-社联初审, PENDING_SCHOOL-学校终审, APPROVED-已通过, REJECTED-已驳回, FINISHED-已结束',
     reject_reason VARCHAR(255) DEFAULT NULL COMMENT '审核驳回原因',
     poster VARCHAR(255) DEFAULT NULL COMMENT '活动海报',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS activities (
     is_deleted TINYINT(1) DEFAULT 0 COMMENT '逻辑删除',
     FOREIGN KEY (club_id) REFERENCES clubs(id)
 ) COMMENT='活动表';
+
+-- 活动合作社团关联表
+CREATE TABLE IF NOT EXISTS activity_co_hosts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    activity_id INT NOT NULL COMMENT '活动ID',
+    club_id INT NOT NULL COMMENT '合作社团ID',
+    status ENUM('PENDING', 'CONFIRMED', 'REJECTED') NOT NULL DEFAULT 'PENDING' COMMENT '确认状态: PENDING-待确认, CONFIRMED-已确认, REJECTED-已拒绝',
+    reject_reason VARCHAR(255) DEFAULT NULL COMMENT '拒绝原因',
+    confirm_time DATETIME DEFAULT NULL COMMENT '确认/拒绝时间',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    is_deleted TINYINT(1) DEFAULT 0 COMMENT '逻辑删除',
+    FOREIGN KEY (activity_id) REFERENCES activities(id),
+    FOREIGN KEY (club_id) REFERENCES clubs(id),
+    UNIQUE KEY uk_activity_club (activity_id, club_id)
+) COMMENT='活动合作社团关联表';
 
 -- 活动报名表
 CREATE TABLE IF NOT EXISTS activity_registrations (

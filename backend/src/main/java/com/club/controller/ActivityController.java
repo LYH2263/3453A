@@ -1,6 +1,7 @@
 package com.club.controller;
 
 import com.club.common.Result;
+import com.club.dto.ActivityCreateDTO;
 import com.club.entity.Activity;
 import com.club.service.ActivityService;
 import jakarta.validation.Valid;
@@ -20,9 +21,38 @@ public class ActivityController {
     }
 
     @PostMapping
-    public Result<?> create(@Valid @RequestBody Activity activity,
+    public Result<?> create(@RequestBody ActivityCreateDTO dto,
                             @RequestParam(required = false, defaultValue = "false") Boolean forceBudget) {
-        return activityService.createActivity(activity, forceBudget);
+        Activity activity = new Activity();
+        activity.setTitle(dto.getTitle());
+        activity.setDescription(dto.getDescription());
+        activity.setProcess(dto.getProcess());
+        activity.setLocation(dto.getLocation());
+        if (dto.getStartTime() != null && !dto.getStartTime().isEmpty()) {
+            activity.setStartTime(parseDateTime(dto.getStartTime()));
+        }
+        if (dto.getEndTime() != null && !dto.getEndTime().isEmpty()) {
+            activity.setEndTime(parseDateTime(dto.getEndTime()));
+        }
+        activity.setMaxCount(dto.getMaxCount());
+        activity.setBudget(dto.getBudget());
+        activity.setPoster(dto.getPoster());
+
+        return activityService.createActivity(activity, forceBudget, dto.getCoHostClubIds());
+    }
+
+    private java.time.LocalDateTime parseDateTime(String dateTimeStr) {
+        if (dateTimeStr == null || dateTimeStr.isEmpty()) return null;
+        try {
+            return java.time.LocalDateTime.parse(dateTimeStr);
+        } catch (Exception e) {
+            try {
+                return java.time.LocalDateTime.parse(dateTimeStr, 
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } catch (Exception ex) {
+                return null;
+            }
+        }
     }
 
     @PutMapping("/{id}")
@@ -92,5 +122,17 @@ public class ActivityController {
     @PostMapping("/{id}/reply")
     public Result<?> reply(@PathVariable Integer id, @RequestBody Map<String, Object> params) {
         return activityService.replyFeedback(id, (Integer) params.get("userId"), (String) params.get("reply"));
+    }
+
+    @PostMapping("/{id}/co-hosts/{coHostId}/confirm")
+    public Result<?> confirmCoHost(@PathVariable Integer id,
+                                   @PathVariable Integer coHostId,
+                                   @RequestBody Map<String, String> params) {
+        return activityService.confirmCoHost(id, coHostId, params.get("status"), params.get("reason"));
+    }
+
+    @GetMapping("/my-pending-co-hosts")
+    public Result<?> getMyPendingCoHosts() {
+        return activityService.getMyPendingCoHosts();
     }
 }

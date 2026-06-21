@@ -14,7 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -31,6 +34,8 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     private ClubMapper clubMapper;
     @Autowired
     private AuditConfigMapper auditConfigMapper;
+    @Autowired
+    private ActivityCoHostMapper coHostMapper;
 
     private Result<?> checkBudgetLimit(Integer clubId, BigDecimal newBudget, BigDecimal oldBudget, Boolean forceBudget) {
         if (newBudget == null || newBudget.compareTo(BigDecimal.ZERO) <= 0) return null;
@@ -87,8 +92,11 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     }
 
     @Override
-    public Result<?> createActivity(Activity activity, Boolean forceBudget) {
+    @Transactional
+    public Result<?> createActivity(Activity activity, Boolean forceBudget, List<Integer> coHostClubIds) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Integer currentUserId = null;
+        Integer currentUserClubId = null;
         if (auth != null && auth.getName() != null) {
             String username = auth.getName();
             User currentUser = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
@@ -97,6 +105,8 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
                     return Result.error("您尚未绑定任何社团，无法发起活动");
                 }
                 activity.setClubId(currentUser.getClubId());
+                currentUserId = currentUser.getId();
+                currentUserClubId = currentUser.getClubId();
             }
         }
 
@@ -105,11 +115,37 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
             if (budgetCheck != null) return budgetCheck;
         }
 
-        activity.setStatus("PENDING_UNION");
+        boolean hasCoHosts = coHostClubIds != null && !coHostClubIds.isEmpty();
+        if (hasCoHosts) {
+            Integer hostClubId = activity.getClubId();
+            if (hostClubId == null) {
+                return Result.error("主办社团不能为空");
+            }
+            for (Integer coHostClubId : coHostClubIds) {
+                if (coHostClubId.equals(hostClubId)) {
+                    return Result.error("合作社团不能与主办社团相同");
+                }
+            }
+            activity.setStatus("DRAFT_COCONFIRM");
+        } else {
+            activity.setStatus("PENDING_UNION");
+        }
+
         boolean saved = this.save(activity);
         if (!saved) {
             return Result.error("活动保存失败");
         }
+
+        if (hasCoHosts) {
+            for (Integer coHostClubId : coHostClubIds) {
+                ActivityCoHost coHost = new ActivityCoHost();
+                coHost.setActivityId(activity.getId());
+                coHost.setClubId(coHostClubId);
+                coHost.setStatus("PENDING");
+                coHostMapper.insert(coHost);
+            }
+        }
+
         return Result.success(null);
     }
 
@@ -404,6 +440,20 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
             detail.put("myPosition", reg != null && "WAITLIST".equals(reg.getStatus()) ? reg.getWaitlistOrder() : null);
         }
 
+        List<ActivityCoHost> coHosts = coHostMapper.selectList(
+            new LambdaQueryWrapper<ActivityCoHost>()
+                .eq(ActivityCoHost::getActivityId, activityId)
+                .orderByAsc(ActivityCoHost::getCreateTime)
+        );
+        for (ActivityCoHost coHost : coHosts) {
+            Club club = clubMapper.selectById(coHost.getClubId());
+            coHost.setClub(club);
+        }
+        detail.put("coHosts", coHosts);
+
+        Club hostClub = clubMapper.selectById(activity.getClubId());
+        detail.put("hostClub", hostClub);
+
         return Result.success(detail);
     }
 
@@ -517,5 +567,109 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         reg.setReply(reply);
         registrationMapper.updateById(reg);
         return Result.success(null);
+    }
+
+    @Override
+    @Transactional
+    public Result<?> confirmCoHost(Integer activityId, Integer coHostId, String status, String reason) {
+        Activity activity = this.getById(activityId);
+        if (activity == null) return Result.error("活动不存在");
+
+        if (!"DRAFT_COCONFIRM".equals(activity.getStatus())) {
+            return Result.error("活动当前状态不支持合作社团确认操作");
+        }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return Result.error("尚未认证");
+        String username = auth.getName();
+        User currentUser = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (currentUser == null) return Result.error("用户不存在");
+        if (!com.club.common.RoleConstants.CLUB_LEADER.equals(currentUser.getRole())) {
+            return Result.error("只有社团负责人才能确认合作活动");
+        }
+
+        ActivityCoHost coHost = coHostMapper.selectById(coHostId);
+        if (coHost == null) return Result.error("合作记录不存在");
+        if (!coHost.getActivityId().equals(activityId)) return Result.error("合作记录与活动不匹配");
+        if (!"PENDING".equals(coHost.getStatus())) {
+            return Result.error("该合作社团已确认或拒绝，无法重复操作");
+        }
+        if (!coHost.getClubId().equals(currentUser.getClubId())) {
+            return Result.error("您不是该合作社团的负责人，无权操作");
+        }
+
+        if ("CONFIRMED".equals(status)) {
+            coHost.setStatus("CONFIRMED");
+            coHost.setConfirmTime(LocalDateTime.now());
+            coHost.setRejectReason(null);
+            coHostMapper.updateById(coHost);
+
+            long pendingCount = coHostMapper.selectCount(
+                new LambdaQueryWrapper<ActivityCoHost>()
+                    .eq(ActivityCoHost::getActivityId, activityId)
+                    .eq(ActivityCoHost::getStatus, "PENDING")
+            );
+
+            if (pendingCount == 0) {
+                activity.setStatus("PENDING_UNION");
+                this.updateById(activity);
+            }
+        } else if ("REJECTED".equals(status)) {
+            coHost.setStatus("REJECTED");
+            coHost.setConfirmTime(LocalDateTime.now());
+            coHost.setRejectReason(reason);
+            coHostMapper.updateById(coHost);
+
+            activity.setStatus("REJECTED");
+            activity.setRejectReason("合作社团拒绝：" + (reason != null ? reason : "未说明原因"));
+            this.updateById(activity);
+        } else {
+            return Result.error("无效的状态值");
+        }
+
+        return Result.success(null);
+    }
+
+    @Override
+    public Result<?> getMyPendingCoHosts() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return Result.error("尚未认证");
+        String username = auth.getName();
+        User currentUser = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (currentUser == null) return Result.error("用户不存在");
+        if (!com.club.common.RoleConstants.CLUB_LEADER.equals(currentUser.getRole())) {
+            return Result.success(new ArrayList<>());
+        }
+
+        Integer clubId = currentUser.getClubId();
+        List<ActivityCoHost> coHosts = coHostMapper.selectList(
+            new LambdaQueryWrapper<ActivityCoHost>()
+                .eq(ActivityCoHost::getClubId, clubId)
+                .eq(ActivityCoHost::getStatus, "PENDING")
+                .orderByDesc(ActivityCoHost::getCreateTime)
+        );
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ActivityCoHost coHost : coHosts) {
+            Activity activity = this.getById(coHost.getActivityId());
+            if (activity == null) continue;
+
+            Club hostClub = clubMapper.selectById(activity.getClubId());
+
+            Map<String, Object> item = new HashMap<>();
+            item.put("coHostId", coHost.getId());
+            item.put("activityId", activity.getId());
+            item.put("activityTitle", activity.getTitle());
+            item.put("activityDescription", activity.getDescription());
+            item.put("startTime", activity.getStartTime());
+            item.put("endTime", activity.getEndTime());
+            item.put("location", activity.getLocation());
+            item.put("budget", activity.getBudget());
+            item.put("hostClub", hostClub);
+            item.put("createTime", coHost.getCreateTime());
+            result.add(item);
+        }
+
+        return Result.success(result);
     }
 }
