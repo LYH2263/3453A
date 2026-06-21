@@ -99,13 +99,13 @@ public class LogAspect {
         exLog.setUsername(username);
 
         exLog.setExceptionName(e.getClass().getName());
-        exLog.setExceptionMessage(e.getMessage());
+        exLog.setExceptionMessage(SensitiveDataMasker.maskStringValue(e.getMessage()));
         
         StringBuilder stackTrace = new StringBuilder();
         for (StackTraceElement element : e.getStackTrace()) {
             stackTrace.append(element.toString()).append("\n");
         }
-        exLog.setStackTrace(SensitiveDataMasker.truncateStackTrace(stackTrace.toString(), 2000));
+        exLog.setStackTrace(SensitiveDataMasker.truncateStackTrace(stackTrace.toString()));
         
         exLog.setCreateTime(LocalDateTime.now());
         adminLogService.saveExceptionLog(exLog);
