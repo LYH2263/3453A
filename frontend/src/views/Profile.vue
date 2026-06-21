@@ -203,7 +203,7 @@ import { useRouter } from 'vue-router'
 import { userApi } from '../api/user'
 import { badgeApi } from '../api/badge'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Medal, User } from '@element-plus/icons-vue'
+import { ChatDotRound, Medal } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const router = useRouter()
@@ -214,7 +214,6 @@ const defaultAvatar = 'https://cube.elemecdn.com/3/7c/3ea0722952d4a0e3e8b0e8e8e8
 const profile = reactive<any>({})
 const myActivities = ref<any[]>([])
 const myInteractions = ref<any[]>([])
-const notifications = ref<any[]>([])
 const myBadges = ref<any[]>([])
 
 const notificationList = ref<any[]>([])

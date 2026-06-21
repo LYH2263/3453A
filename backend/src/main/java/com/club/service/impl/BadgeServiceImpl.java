@@ -53,7 +53,7 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
         badge.setIsPublic(dto.getIsPublic() != null ? dto.getIsPublic() : 1);
         this.save(badge);
 
-        return Result.success(badge);
+        return Result.success(buildBadgeDetail(badge));
     }
 
     @Override
@@ -86,7 +86,7 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
         }
         this.updateById(badge);
 
-        return Result.success(badge);
+        return Result.success(buildBadgeDetail(badge));
     }
 
     @Override
@@ -110,13 +110,11 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
     }
 
     @Override
-    public Result<?> getBadgeList(Integer clubId, Boolean isPublic) {
+    public Result<?> getPublicBadgeList(Integer clubId) {
         LambdaQueryWrapper<Badge> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Badge::getIsPublic, 1);
         if (clubId != null) {
             wrapper.eq(Badge::getClubId, clubId);
-        }
-        if (isPublic != null) {
-            wrapper.eq(Badge::getIsPublic, isPublic ? 1 : 0);
         }
         wrapper.orderByDesc(Badge::getCreateTime);
 
@@ -129,11 +127,73 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
     }
 
     @Override
-    public Result<?> getBadgeDetail(Integer badgeId) {
+    public Result<?> getManagedBadges(String username) {
+        User operator = getCurrentUser(username);
+        if (operator == null) {
+            return Result.error("用户不存在");
+        }
+
+        LambdaQueryWrapper<Badge> wrapper = new LambdaQueryWrapper<>();
+        if (RoleConstants.ADMIN.equals(operator.getRole()) || RoleConstants.UNION_ADMIN.equals(operator.getRole())) {
+            // admin/union see all
+        } else if (RoleConstants.CLUB_LEADER.equals(operator.getRole())) {
+            wrapper.eq(Badge::getClubId, operator.getClubId());
+        } else {
+            return Result.error("无权限管理徽章");
+        }
+        wrapper.orderByDesc(Badge::getCreateTime);
+
+        List<Badge> badges = this.list(wrapper);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Badge badge : badges) {
+            Map<String, Object> item = buildBadgeDetail(badge);
+
+            List<UserBadge> activeGrants = userBadgeMapper.selectList(
+                    new LambdaQueryWrapper<UserBadge>()
+                            .eq(UserBadge::getBadgeId, badge.getId())
+                            .eq(UserBadge::getRevoked, 0)
+                            .orderByDesc(UserBadge::getGrantedTime));
+
+            List<Map<String, Object>> grantList = new ArrayList<>();
+            for (UserBadge ub : activeGrants) {
+                User u = userMapper.selectById(ub.getUserId());
+                if (u == null) continue;
+                Map<String, Object> g = new HashMap<>();
+                g.put("userBadgeId", ub.getId());
+                g.put("userId", u.getId());
+                g.put("userName", u.getRealName());
+                g.put("userAvatar", u.getAvatar());
+                g.put("grantedTime", ub.getGrantedTime());
+                User grantor = userMapper.selectById(ub.getGrantedBy());
+                g.put("grantedByName", grantor != null ? grantor.getRealName() : "");
+                grantList.add(g);
+            }
+            item.put("grants", grantList);
+            result.add(item);
+        }
+        return Result.success(result);
+    }
+
+    @Override
+    public Result<?> getBadgeDetail(String username, Integer badgeId) {
         Badge badge = this.getById(badgeId);
         if (badge == null) {
             return Result.error("徽章不存在");
         }
+
+        if (badge.getIsPublic() == 0) {
+            if (username == null) {
+                return Result.error("无权限查看该徽章");
+            }
+            User user = getCurrentUser(username);
+            if (user == null) {
+                return Result.error("用户不存在");
+            }
+            if (!canManageBadge(user, badge.getClubId()) && !Objects.equals(user.getClubId(), badge.getClubId())) {
+                return Result.error("该徽章不公开");
+            }
+        }
+
         return Result.success(buildBadgeDetail(badge));
     }
 
@@ -178,7 +238,7 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
         userBadge.setRevoked(0);
         userBadgeMapper.insert(userBadge);
 
-        return Result.success(userBadge);
+        return Result.success(null);
     }
 
     @Override
@@ -214,7 +274,7 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
         }
         userBadgeMapper.updateById(userBadge);
 
-        return Result.success(userBadge);
+        return Result.success(null);
     }
 
     @Override
@@ -318,10 +378,23 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
     }
 
     @Override
-    public Result<?> getBadgeRecipients(Integer badgeId) {
+    public Result<?> getBadgeRecipients(String username, Integer badgeId) {
         Badge badge = this.getById(badgeId);
         if (badge == null) {
             return Result.error("徽章不存在");
+        }
+
+        if (badge.getIsPublic() == 0) {
+            if (username == null) {
+                return Result.error("无权限查看获得者");
+            }
+            User user = getCurrentUser(username);
+            if (user == null) {
+                return Result.error("用户不存在");
+            }
+            if (!canManageBadge(user, badge.getClubId()) && !Objects.equals(user.getClubId(), badge.getClubId())) {
+                return Result.error("该徽章不公开");
+            }
         }
 
         List<UserBadge> userBadges = userBadgeMapper.selectList(

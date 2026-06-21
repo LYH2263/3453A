@@ -11,12 +11,13 @@ public interface BadgeService extends IService<Badge> {
     Result<?> createBadge(String username, BadgeCreateDTO dto);
     Result<?> updateBadge(String username, Integer badgeId, BadgeCreateDTO dto);
     Result<?> deleteBadge(String username, Integer badgeId);
-    Result<?> getBadgeList(Integer clubId, Boolean isPublic);
-    Result<?> getBadgeDetail(Integer badgeId);
+    Result<?> getPublicBadgeList(Integer clubId);
+    Result<?> getManagedBadges(String username);
+    Result<?> getBadgeDetail(String username, Integer badgeId);
     Result<?> grantBadge(String username, GrantBadgeDTO dto);
     Result<?> revokeBadge(String username, Integer userBadgeId, RevokeBadgeDTO dto);
     Result<?> getUserBadges(Integer userId);
     Result<?> getMyBadges(String username);
     Result<?> getClubPublicBadges(Integer clubId);
-    Result<?> getBadgeRecipients(Integer badgeId);
+    Result<?> getBadgeRecipients(String username, Integer badgeId);
 }

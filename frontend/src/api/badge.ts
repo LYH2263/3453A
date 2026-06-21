@@ -10,6 +10,16 @@ export interface Badge {
   isPublic?: number
   createTime?: string
   recipientCount?: number
+  grants?: BadgeGrant[]
+}
+
+export interface BadgeGrant {
+  userBadgeId: number
+  userId: number
+  userName: string
+  userAvatar?: string
+  grantedTime?: string
+  grantedByName?: string
 }
 
 export interface UserBadge {
@@ -26,7 +36,7 @@ export interface UserBadge {
 }
 
 export const badgeApi = {
-  getBadgeList: (params?: { clubId?: number; isPublic?: boolean }) =>
+  getPublicBadgeList: (params?: { clubId?: number }) =>
     request.get('/badges', { params }),
 
   getBadgeDetail: (id: number) =>
@@ -43,6 +53,9 @@ export const badgeApi = {
 
   getBadgeRecipients: (badgeId: number) =>
     request.get(`/badges/${badgeId}/recipients`),
+
+  getManagedBadges: () =>
+    request.get('/badges/managed'),
 
   createBadge: (data: {
     clubId: number
@@ -66,5 +79,8 @@ export const badgeApi = {
     request.post('/badges/grant', data),
 
   revokeBadge: (userBadgeId: number, data?: { revokeReason?: string }) =>
-    request.post(`/badges/user-badges/${userBadgeId}/revoke`, data)
+    request.post(`/badges/user-badges/${userBadgeId}/revoke`, data),
+
+  getClubMembers: (clubId: number) =>
+    request.get(`/clubs/${clubId}/members`)
 }

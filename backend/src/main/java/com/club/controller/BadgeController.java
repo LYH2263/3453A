@@ -20,18 +20,17 @@ public class BadgeController {
     @Autowired
     private BadgeService badgeService;
 
-    @Log("获取徽章列表")
+    @Log("获取公开徽章列表")
     @GetMapping
-    public Result<?> list(
-            @RequestParam(required = false) Integer clubId,
-            @RequestParam(required = false) Boolean isPublic) {
-        return badgeService.getBadgeList(clubId, isPublic);
+    public Result<?> list(@RequestParam(required = false) Integer clubId) {
+        return badgeService.getPublicBadgeList(clubId);
     }
 
     @Log("获取徽章详情")
     @GetMapping("/{id}")
-    public Result<?> detail(@PathVariable Integer id) {
-        return badgeService.getBadgeDetail(id);
+    public Result<?> detail(@PathVariable Integer id, Authentication auth) {
+        String username = auth != null ? auth.getName() : null;
+        return badgeService.getBadgeDetail(username, id);
     }
 
     @Log("获取社团公开徽章")
@@ -40,7 +39,7 @@ public class BadgeController {
         return badgeService.getClubPublicBadges(clubId);
     }
 
-    @Log("获取用户徽章")
+    @Log("获取用户徽章（公开）")
     @GetMapping("/user/{userId}")
     public Result<?> getUserBadges(@PathVariable Integer userId) {
         return badgeService.getUserBadges(userId);
@@ -54,8 +53,16 @@ public class BadgeController {
 
     @Log("获取徽章获得者列表")
     @GetMapping("/{id}/recipients")
-    public Result<?> getBadgeRecipients(@PathVariable Integer id) {
-        return badgeService.getBadgeRecipients(id);
+    public Result<?> getBadgeRecipients(@PathVariable Integer id, Authentication auth) {
+        String username = auth != null ? auth.getName() : null;
+        return badgeService.getBadgeRecipients(username, id);
+    }
+
+    @Log("获取我管理的徽章")
+    @GetMapping("/managed")
+    @PreAuthorize("hasAnyRole('" + RoleConstants.ADMIN + "', '" + RoleConstants.UNION_ADMIN + "', '" + RoleConstants.CLUB_LEADER + "')")
+    public Result<?> getManagedBadges(Authentication auth) {
+        return badgeService.getManagedBadges(auth.getName());
     }
 
     @Log("创建徽章")
