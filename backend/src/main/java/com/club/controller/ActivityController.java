@@ -20,8 +20,21 @@ public class ActivityController {
     }
 
     @PostMapping
-    public Result<?> create(@Valid @RequestBody Activity activity) {
-        return activityService.createActivity(activity);
+    public Result<?> create(@Valid @RequestBody Activity activity,
+                            @RequestParam(required = false, defaultValue = "false") Boolean forceBudget) {
+        return activityService.createActivity(activity, forceBudget);
+    }
+
+    @PutMapping("/{id}")
+    public Result<?> update(@PathVariable Integer id,
+                            @RequestBody Activity activity,
+                            @RequestParam(required = false, defaultValue = "false") Boolean forceBudget) {
+        return activityService.updateActivity(id, activity, forceBudget);
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<?> delete(@PathVariable Integer id) {
+        return activityService.deleteActivity(id);
     }
 
     @PostMapping("/{id}/audit")

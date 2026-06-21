@@ -20,6 +20,9 @@
               <span><el-icon><Location /></el-icon> {{ act.location }}</span>
               <span><el-icon><Calendar /></el-icon> {{ act.startTime?.split('T')[0] }}</span>
             </div>
+            <div class="budget-info" v-if="act.budget > 0">
+              <span>预算: ¥{{ act.budget }}</span>
+            </div>
             <div class="enrollment-info">
               <span class="enrollment-count">
                 已报名: {{ act._detail?.registeredCount || 0 }} / {{ act.maxCount }}
@@ -62,6 +65,8 @@
                   扩容
                 </el-button>
               </template>
+              <el-button v-if="canEdit(act)" type="primary" size="small" @click="handleEdit(act)">编辑</el-button>
+              <el-button v-if="canDelete(act)" type="danger" size="small" @click="handleDelete(act)">删除</el-button>
               <el-button v-if="canAudit(act)" type="warning" size="small" @click="handleAudit(act)">审核</el-button>
               <el-button v-if="act.status === 'APPROVED' && userStore.role === 'CLUB_LEADER'" type="success" size="small" @click="handleFinish(act.id)">结束活动</el-button>
             </div>
@@ -70,7 +75,6 @@
       </el-col>
     </el-row>
 
-    <!-- 发起活动弹窗 -->
     <el-dialog v-model="showAddDialog" title="发起活动" width="500px">
       <el-form :model="addForm" ref="addFormRef" label-width="80px">
         <el-form-item label="活动名称" required>
@@ -104,7 +108,71 @@
       </template>
     </el-dialog>
 
-    <!-- 审核弹窗 -->
+    <el-dialog v-model="showBudgetWarningDialog" title="预算超限警告" width="480px">
+      <el-alert type="warning" :closable="false" style="margin-bottom: 15px">
+        <p>该社团当月预算合计已超出月度预算上限！</p>
+        <p>当月已用：¥{{ budgetWarningInfo.currentTotal }}</p>
+        <p>提交后合计：¥{{ budgetWarningInfo.projectedTotal }}</p>
+        <p>月度上限：¥{{ budgetWarningInfo.limit }}</p>
+      </el-alert>
+      <el-checkbox v-model="budgetRiskAcknowledged">
+        我已知晓超支风险，确认继续发起
+      </el-checkbox>
+      <template #footer>
+        <el-button @click="showBudgetWarningDialog = false">取消</el-button>
+        <el-button type="primary" :disabled="!budgetRiskAcknowledged" @click="forceSubmitAdd">确认发起</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showEditDialog" title="编辑活动" width="500px">
+      <el-form :model="editForm" ref="editFormRef" label-width="80px">
+        <el-form-item label="活动名称" required>
+          <el-input v-model="editForm.title" />
+        </el-form-item>
+        <el-form-item label="活动描述" required>
+          <el-input v-model="editForm.description" type="textarea" />
+        </el-form-item>
+        <el-form-item label="活动流程" required>
+          <el-input v-model="editForm.process" type="textarea" />
+        </el-form-item>
+        <el-form-item label="活动地点" required>
+          <el-input v-model="editForm.location" />
+        </el-form-item>
+        <el-form-item label="开始时间" required>
+          <el-date-picker v-model="editForm.startTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" />
+        </el-form-item>
+        <el-form-item label="结束时间" required>
+          <el-date-picker v-model="editForm.endTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" />
+        </el-form-item>
+        <el-form-item label="人数上限">
+          <el-input-number v-model="editForm.maxCount" :min="1" />
+        </el-form-item>
+        <el-form-item label="预算">
+          <el-input-number v-model="editForm.budget" :min="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showBudgetWarningEditDialog" title="预算超限警告" width="480px">
+      <el-alert type="warning" :closable="false" style="margin-bottom: 15px">
+        <p>修改后该社团当月预算合计将超出月度预算上限！</p>
+        <p>当月已用：¥{{ budgetWarningInfo.currentTotal }}</p>
+        <p>修改后合计：¥{{ budgetWarningInfo.projectedTotal }}</p>
+        <p>月度上限：¥{{ budgetWarningInfo.limit }}</p>
+      </el-alert>
+      <el-checkbox v-model="budgetRiskAcknowledged">
+        我已知晓超支风险，确认继续修改
+      </el-checkbox>
+      <template #footer>
+        <el-button @click="showBudgetWarningEditDialog = false">取消</el-button>
+        <el-button type="primary" :disabled="!budgetRiskAcknowledged" @click="forceSubmitEdit">确认修改</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showAuditDialog" title="活动审核" width="400px">
       <el-form :model="auditForm" label-width="80px">
         <el-form-item label="审核结果">
@@ -123,7 +191,6 @@
       </template>
     </el-dialog>
 
-    <!-- 扩容弹窗 -->
     <el-dialog v-model="showExpandDialog" title="活动扩容" width="400px">
       <el-form :model="expandForm" label-width="100px">
         <el-form-item label="活动名称">
@@ -168,10 +235,14 @@ interface Activity {
   id: number
   title: string
   description: string
+  process: string
   location: string
   startTime: string
-  status: string
+  endTime: string
+  budget: number
   maxCount: number
+  clubId: number
+  status: string
   poster?: string
   _detail?: {
     registeredCount: number
@@ -248,6 +319,22 @@ const canExpand = (act: any) => {
   return userStore.role === 'CLUB_LEADER' && act.clubId === userStore.userInfo?.clubId
 }
 
+const canEdit = (act: any) => {
+  if (userStore.role === 'ADMIN' || userStore.role === 'UNION_ADMIN') return true
+  if (userStore.role === 'CLUB_LEADER' && act.clubId === userStore.userInfo?.clubId) {
+    return !['APPROVED', 'FINISHED'].includes(act.status)
+  }
+  return false
+}
+
+const canDelete = (act: any) => {
+  if (userStore.role === 'ADMIN' || userStore.role === 'UNION_ADMIN') return true
+  if (userStore.role === 'CLUB_LEADER' && act.clubId === userStore.userInfo?.clubId) {
+    return !['APPROVED', 'FINISHED'].includes(act.status)
+  }
+  return false
+}
+
 const handleRegister = async (act: any) => {
   try {
     const res: any = await request.post(`/activities/${act.id}/register?userId=${userStore.userInfo?.id}`)
@@ -293,14 +380,101 @@ const handleLeaveWaitlist = async (act: any) => {
 
 const addForm = ref({ title: '', description: '', process: '', location: '', startTime: '', endTime: '', maxCount: 50, budget: 0 })
 
+const showBudgetWarningDialog = ref(false)
+const budgetWarningInfo = ref<any>({})
+const budgetRiskAcknowledged = ref(false)
+
 const submitAdd = async () => {
   try {
-    await request.post('/activities', addForm.value)
+    const res: any = await request.post('/activities', addForm.value)
+    if (res && res.budgetWarning) {
+      budgetWarningInfo.value = res
+      budgetRiskAcknowledged.value = false
+      showBudgetWarningDialog.value = true
+      return
+    }
     ElMessage.success('活动发起成功')
     showAddDialog.value = false
     fetchActivities()
   } catch (err) {
     console.error('Form submission failed:', err)
+  }
+}
+
+const forceSubmitAdd = async () => {
+  try {
+    await request.post('/activities?forceBudget=true', addForm.value)
+    ElMessage.success('活动发起成功')
+    showBudgetWarningDialog.value = false
+    showAddDialog.value = false
+    fetchActivities()
+  } catch (err) {
+    console.error('Force submit failed:', err)
+  }
+}
+
+const showEditDialog = ref(false)
+const editForm = ref<any>({})
+const editingActivityId = ref(0)
+const showBudgetWarningEditDialog = ref(false)
+
+const handleEdit = (act: any) => {
+  editingActivityId.value = act.id
+  editForm.value = {
+    title: act.title,
+    description: act.description,
+    process: act.process || '',
+    location: act.location,
+    startTime: act.startTime,
+    endTime: act.endTime,
+    maxCount: act.maxCount,
+    budget: act.budget
+  }
+  showEditDialog.value = true
+}
+
+const submitEdit = async () => {
+  try {
+    const res: any = await request.put(`/activities/${editingActivityId.value}`, editForm.value)
+    if (res && res.budgetWarning) {
+      budgetWarningInfo.value = res
+      budgetRiskAcknowledged.value = false
+      showBudgetWarningEditDialog.value = true
+      return
+    }
+    ElMessage.success('活动修改成功')
+    showEditDialog.value = false
+    fetchActivities()
+  } catch (err) {
+    console.error('Edit submission failed:', err)
+  }
+}
+
+const forceSubmitEdit = async () => {
+  try {
+    await request.put(`/activities/${editingActivityId.value}?forceBudget=true`, editForm.value)
+    ElMessage.success('活动修改成功')
+    showBudgetWarningEditDialog.value = false
+    showEditDialog.value = false
+    fetchActivities()
+  } catch (err) {
+    console.error('Force edit failed:', err)
+  }
+}
+
+const handleDelete = async (act: any) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该活动吗？删除后预算将回滚。', '确认删除', {
+      type: 'warning'
+    })
+    await request.delete(`/activities/${act.id}`)
+    ElMessage.success('活动已删除')
+    fetchActivities()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      console.error('Delete failed:', err)
+      ElMessage.error(err.message || '删除失败')
+    }
   }
 }
 
@@ -414,6 +588,12 @@ onMounted(fetchActivities)
   gap: 15px;
   font-size: 12px;
   color: #999;
+}
+.budget-info {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #e6a23c;
+  font-weight: 500;
 }
 .enrollment-info {
   margin-top: 12px;

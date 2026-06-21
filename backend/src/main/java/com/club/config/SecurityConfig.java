@@ -55,6 +55,10 @@ public class SecurityConfig {
                 // 活动管理权限
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/activities").hasAnyRole(
                     RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/activities/**").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/activities/**").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
                 .requestMatchers("/api/activities/*/finish", "/api/activities/*/reply").hasAnyRole(
                     RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
                 // 活动审核仅社联/管理员

@@ -1,6 +1,7 @@
 package com.club.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import jakarta.validation.constraints.*;
 
@@ -15,6 +16,8 @@ public class Club {
     private Integer leaderId;
     private String status; // NORMAL, RETIRED
     private String logo;
+    private BigDecimal monthlyBudgetLimit;
+    private String budgetEnforceMode;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
@@ -40,6 +43,12 @@ public class Club {
 
     public String getLogo() { return logo; }
     public void setLogo(String logo) { this.logo = logo; }
+
+    public BigDecimal getMonthlyBudgetLimit() { return monthlyBudgetLimit; }
+    public void setMonthlyBudgetLimit(BigDecimal monthlyBudgetLimit) { this.monthlyBudgetLimit = monthlyBudgetLimit; }
+
+    public String getBudgetEnforceMode() { return budgetEnforceMode; }
+    public void setBudgetEnforceMode(String budgetEnforceMode) { this.budgetEnforceMode = budgetEnforceMode; }
 
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }

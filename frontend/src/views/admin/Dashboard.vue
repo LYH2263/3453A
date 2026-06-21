@@ -21,6 +21,14 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="20" class="mt-20">
+      <el-col :span="24">
+        <el-card header="当月各社团预算占用率">
+          <div ref="budgetChartRef" style="height: 400px;"></div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -45,13 +53,12 @@ const labels: Record<string, string> = {
 
 const typeChartRef = ref<HTMLElement | null>(null)
 const trendChartRef = ref<HTMLElement | null>(null)
+const budgetChartRef = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
-  // Fetch overview
   const res: any = await request.get('/admin/stat/overview')
   Object.assign(overview, res)
 
-  // Type Chart
   if (typeChartRef.value) {
     const typeRes: any = await request.get('/admin/stat/activity-types')
     const chart = echarts.init(typeChartRef.value)
@@ -72,7 +79,6 @@ onMounted(async () => {
     })
   }
 
-  // Trend Chart
   if (trendChartRef.value) {
     const trendRes: any = await request.get('/admin/stat/trend')
     const chart = echarts.init(trendChartRef.value)
@@ -87,6 +93,68 @@ onMounted(async () => {
         areaStyle: { opacity: 0.2 }
       }]
     })
+  }
+
+  if (budgetChartRef.value) {
+    try {
+      const budgetRes: any = await request.get('/admin/stat/budget-utilization')
+      const chart = echarts.init(budgetChartRef.value)
+      const clubNames = budgetRes.map((item: any) => item.clubName)
+      const currentBudgets = budgetRes.map((item: any) => item.currentBudget)
+      const budgetLimits = budgetRes.map((item: any) => item.budgetLimit)
+      const rates = budgetRes.map((item: any) => item.utilizationRate)
+
+      chart.setOption({
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          formatter: (params: any) => {
+            let tip = `<strong>${params[0].name}</strong><br/>`
+            params.forEach((p: any) => {
+              tip += `${p.marker} ${p.seriesName}: ¥${p.value}<br/>`
+            })
+            const idx = params[0].dataIndex
+            tip += `占用率: ${rates[idx]}%`
+            return tip
+          }
+        },
+        legend: { data: ['已用预算', '预算上限'] },
+        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+        xAxis: { type: 'category', data: clubNames },
+        yAxis: {
+          type: 'value',
+          axisLabel: { formatter: '¥{value}' }
+        },
+        series: [
+          {
+            name: '已用预算',
+            type: 'bar',
+            data: currentBudgets,
+            itemStyle: {
+              color: (params: any) => {
+                const rate = rates[params.dataIndex]
+                if (rate >= 100) return '#F56C6C'
+                if (rate >= 80) return '#E6A23C'
+                return '#409EFF'
+              }
+            },
+            label: {
+              show: true,
+              position: 'top',
+              formatter: (params: any) => `${rates[params.dataIndex]}%`
+            }
+          },
+          {
+            name: '预算上限',
+            type: 'bar',
+            data: budgetLimits,
+            itemStyle: { color: '#DCDFE6' }
+          }
+        ]
+      })
+    } catch (err) {
+      console.error('Failed to load budget utilization:', err)
+    }
   }
 })
 </script>

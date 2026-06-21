@@ -26,6 +26,37 @@
           </el-table-column>
         </el-table>
       </el-tab-pane>
+
+      <el-tab-pane label="预算阈值配置">
+        <el-table :data="budgetConfigs" v-loading="budgetLoading" class="glass-card" style="margin-top: 20px">
+          <el-table-column prop="clubName" label="社团名称" />
+          <el-table-column label="月度预算上限">
+            <template #default="{ row }">
+              <el-input-number
+                v-model="row.monthlyBudgetLimit"
+                :min="0"
+                :precision="2"
+                :controls="false"
+                size="small"
+                style="width: 150px"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column label="超限模式">
+            <template #default="{ row }">
+              <el-select v-model="row.budgetEnforceMode" size="small" style="width: 150px">
+                <el-option label="二次确认（SOFT）" value="SOFT" />
+                <el-option label="硬拒绝（HARD）" value="HARD" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="100">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" @click="saveBudgetConfig(row)">保存</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="dialogVisible" title="配置审核节点">
@@ -54,10 +85,12 @@ const auditConfigs = ref([])
 const dialogVisible = ref(false)
 const auditForm = reactive({ id: null, type: '', nodes: '' })
 
+const budgetConfigs = ref<any[]>([])
+const budgetLoading = ref(false)
+
 const fetchData = async () => {
   loading.value = true
   try {
-    // Current user list for role management
     const usersRes: any = await request.get('/user/list')
     users.value = usersRes.records
     
@@ -68,6 +101,16 @@ const fetchData = async () => {
     auditConfigs.value = auditRes
   } finally {
     loading.value = false
+  }
+}
+
+const fetchBudgetConfigs = async () => {
+  budgetLoading.value = true
+  try {
+    const res: any = await request.get('/admin/config/budget')
+    budgetConfigs.value = res
+  } finally {
+    budgetLoading.value = false
   }
 }
 
@@ -99,7 +142,22 @@ const saveAudit = async () => {
   fetchData()
 }
 
-onMounted(fetchData)
+const saveBudgetConfig = async (row: any) => {
+  try {
+    await request.put(`/admin/config/budget/${row.clubId}`, {
+      monthlyBudgetLimit: row.monthlyBudgetLimit,
+      budgetEnforceMode: row.budgetEnforceMode
+    })
+    ElMessage.success('预算配置已保存')
+  } catch (err) {
+    console.error('Save budget config failed:', err)
+  }
+}
+
+onMounted(() => {
+  fetchData()
+  fetchBudgetConfigs()
+})
 </script>
 
 <style scoped>

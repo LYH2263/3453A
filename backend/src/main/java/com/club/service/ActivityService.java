@@ -4,7 +4,9 @@ import com.club.entity.Activity;
 import com.club.common.Result;
 
 public interface ActivityService extends IService<Activity> {
-    Result<?> createActivity(Activity activity);
+    Result<?> createActivity(Activity activity, Boolean forceBudget);
+    Result<?> updateActivity(Integer id, Activity activity, Boolean forceBudget);
+    Result<?> deleteActivity(Integer id);
     Result<?> auditActivity(Integer id, String status, String reason);
     Result<?> register(Integer activityId, Integer userId);
     Result<?> signin(Integer activityId, Integer userId);

@@ -13,6 +13,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,9 +27,67 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     private ActivityPromotionLogMapper promotionLogMapper;
     @Autowired
     private ActivityMapper activityMapper;
+    @Autowired
+    private ClubMapper clubMapper;
+    @Autowired
+    private AuditConfigMapper auditConfigMapper;
+
+    private Result<?> checkBudgetLimit(Integer clubId, BigDecimal newBudget, BigDecimal oldBudget, Boolean forceBudget) {
+        if (newBudget == null || newBudget.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        Club club = clubMapper.selectById(clubId);
+        if (club == null) return null;
+
+        BigDecimal limit = club.getMonthlyBudgetLimit();
+        String enforceMode = club.getBudgetEnforceMode();
+
+        if (limit == null || limit.compareTo(BigDecimal.ZERO) <= 0) {
+            AuditConfig defaultConfig = auditConfigMapper.selectOne(
+                new LambdaQueryWrapper<AuditConfig>()
+                    .eq(AuditConfig::getType, "MONTHLY_BUDGET_LIMIT")
+                    .eq(AuditConfig::getIsActive, 1));
+            if (defaultConfig != null && defaultConfig.getNodes() != null) {
+                try {
+                    String nodes = defaultConfig.getNodes();
+                    if (nodes.contains("defaultLimit")) {
+                        String limitStr = nodes.replaceAll(".*\"defaultLimit\"\\s*:\\s*", "").replaceAll("[^0-9.].*", "").trim();
+                        if (!limitStr.isEmpty()) limit = new BigDecimal(limitStr);
+                    }
+                    if (enforceMode == null && nodes.contains("defaultEnforceMode")) {
+                        String mode = nodes.replaceAll(".*\"defaultEnforceMode\"\\s*:\\s*\"", "").replaceAll("\".*", "").trim();
+                        if (!mode.isEmpty()) enforceMode = mode;
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (limit == null || limit.compareTo(BigDecimal.ZERO) <= 0) return null;
+        if (enforceMode == null) enforceMode = "SOFT";
+
+        BigDecimal currentSum = activityMapper.sumMonthlyBudget(clubId);
+        BigDecimal projectedTotal = currentSum;
+        if (oldBudget != null) {
+            projectedTotal = projectedTotal.subtract(oldBudget);
+        }
+        projectedTotal = projectedTotal.add(newBudget);
+
+        if (projectedTotal.compareTo(limit) > 0) {
+            if ("HARD".equals(enforceMode)) {
+                return Result.error(4003, "月度预算已超限（当前合计：" + projectedTotal + "元，上限：" + limit + "元），不允许发起活动");
+            }
+            if (Boolean.TRUE.equals(forceBudget)) return null;
+            Map<String, Object> data = new HashMap<>();
+            data.put("budgetWarning", true);
+            data.put("currentTotal", currentSum);
+            data.put("projectedTotal", projectedTotal);
+            data.put("limit", limit);
+            return Result.success(data);
+        }
+        return null;
+    }
 
     @Override
-    public Result<?> createActivity(Activity activity) {
+    public Result<?> createActivity(Activity activity, Boolean forceBudget) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getName() != null) {
             String username = auth.getName();
@@ -40,12 +99,55 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
                 activity.setClubId(currentUser.getClubId());
             }
         }
-        
+
+        if (activity.getClubId() != null) {
+            Result<?> budgetCheck = checkBudgetLimit(activity.getClubId(), activity.getBudget(), null, forceBudget);
+            if (budgetCheck != null) return budgetCheck;
+        }
+
         activity.setStatus("PENDING_UNION");
         boolean saved = this.save(activity);
         if (!saved) {
             return Result.error("活动保存失败");
         }
+        return Result.success(null);
+    }
+
+    @Override
+    public Result<?> updateActivity(Integer id, Activity activity, Boolean forceBudget) {
+        Activity existing = this.getById(id);
+        if (existing == null) return Result.error("活动不存在");
+
+        if ("APPROVED".equals(existing.getStatus()) || "FINISHED".equals(existing.getStatus())) {
+            return Result.error("已通过或已结束的活动无法编辑");
+        }
+
+        if (activity.getClubId() != null || existing.getClubId() != null) {
+            Integer clubId = existing.getClubId() != null ? existing.getClubId() : activity.getClubId();
+            BigDecimal newBudget = activity.getBudget() != null ? activity.getBudget() : existing.getBudget();
+            Result<?> budgetCheck = checkBudgetLimit(clubId, newBudget, existing.getBudget(), forceBudget);
+            if (budgetCheck != null) return budgetCheck;
+        }
+
+        if (activity.getTitle() != null) existing.setTitle(activity.getTitle());
+        if (activity.getDescription() != null) existing.setDescription(activity.getDescription());
+        if (activity.getProcess() != null) existing.setProcess(activity.getProcess());
+        if (activity.getLocation() != null) existing.setLocation(activity.getLocation());
+        if (activity.getStartTime() != null) existing.setStartTime(activity.getStartTime());
+        if (activity.getEndTime() != null) existing.setEndTime(activity.getEndTime());
+        if (activity.getMaxCount() != null) existing.setMaxCount(activity.getMaxCount());
+        if (activity.getBudget() != null) existing.setBudget(activity.getBudget());
+        if (activity.getPoster() != null) existing.setPoster(activity.getPoster());
+
+        this.updateById(existing);
+        return Result.success(null);
+    }
+
+    @Override
+    public Result<?> deleteActivity(Integer id) {
+        Activity activity = this.getById(id);
+        if (activity == null) return Result.error("活动不存在");
+        this.removeById(id);
         return Result.success(null);
     }
 
