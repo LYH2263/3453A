@@ -306,7 +306,7 @@ import request from '../utils/request'
 import { ElMessage } from 'element-plus'
 import { ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { topicApi } from '../api/topic'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 const userStore = useUserStore()
 const activeTab = ref('announcements')
@@ -403,7 +403,6 @@ const commentInputs = ref<Record<number, string>>({})
 const replyTarget = ref<any>(null)
 
 const route = useRoute()
-const router = useRouter()
 
 const toggleTopicDetail = async (topic: any) => {
   if (expandedTopicId.value === topic.id) {
@@ -423,11 +422,11 @@ const toggleTopicDetail = async (topic: any) => {
 
 const loadComments = async (topicId: number) => {
   try {
-    const data = await topicApi.getComments(topicId)
-    commentsMap.value[topicId] = data as any[]
+    const data: any = await topicApi.getComments(topicId)
+    commentsMap.value[topicId] = data
     const topic = topics.value.find(t => t.id === topicId)
     if (topic) {
-      topic.commentsCount = (data as any[]).length
+      topic.commentsCount = data.length
     }
   } catch (err) {
     console.error('Failed to load comments:', err)

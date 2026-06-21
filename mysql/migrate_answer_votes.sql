@@ -1,4 +1,6 @@
--- 问答社区：回答投票表
+-- 问答社区：回答投票表（幂等）
+USE club_db;
+
 CREATE TABLE IF NOT EXISTS answer_votes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL COMMENT '投票用户ID',
@@ -9,5 +11,11 @@ CREATE TABLE IF NOT EXISTS answer_votes (
     FOREIGN KEY (answer_id) REFERENCES answers(id)
 ) COMMENT='回答投票表';
 
--- 为 answers 表增加乐观锁版本字段
-ALTER TABLE answers ADD COLUMN IF NOT EXISTS version INT DEFAULT 0 COMMENT '乐观锁版本号';
+SET @db := DATABASE();
+SET @sql := IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'answers' AND COLUMN_NAME = 'version') = 0,
+    'ALTER TABLE answers ADD COLUMN version INT DEFAULT 0 COMMENT ''乐观锁版本号''',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

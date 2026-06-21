@@ -278,7 +278,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             item.put("triggerUserId", n.getTriggerUserId());
 
             if (n.getTriggerUserId() != null) {
-                User triggerUser = userMapper.selectById(n.getTriggerUserId());
+                User triggerUser = this.getById(n.getTriggerUserId());
                 if (triggerUser != null) {
                     item.put("triggerUserName", triggerUser.getRealName());
                     item.put("triggerUserAvatar", triggerUser.getAvatar());
