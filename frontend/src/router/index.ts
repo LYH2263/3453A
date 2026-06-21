@@ -46,6 +46,11 @@ const router = createRouter({
                     name: 'Interaction',
                     component: () => import('../views/Interaction.vue')
                 },
+                {
+                    path: 'badges',
+                    name: 'Badges',
+                    component: () => import('../views/Badges.vue')
+                },
                 // 管理员专属：用户管理
                 {
                     path: 'admin/dashboard',

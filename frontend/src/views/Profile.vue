@@ -115,6 +115,35 @@
                 </el-timeline-item>
               </el-timeline>
             </el-tab-pane>
+
+            <!-- 我的徽章 -->
+            <el-tab-pane name="badges">
+              <template #label>
+                <el-badge :value="myBadges.length" :hidden="!myBadges.length" type="warning">
+                  我的徽章
+                </el-badge>
+              </template>
+              <el-empty v-if="!myBadges.length" description="暂无获得的徽章" />
+              <div v-else class="my-badges-grid">
+                <div v-for="badge in myBadges" :key="badge.userBadgeId" class="my-badge-card">
+                  <div class="my-badge-icon">
+                    <img v-if="badge.iconUrl" :src="badge.iconUrl" :alt="badge.name" />
+                    <el-icon v-else :size="32"><Medal /></el-icon>
+                  </div>
+                  <div class="my-badge-info">
+                    <h4 class="my-badge-name">{{ badge.name }}</h4>
+                    <p class="my-badge-desc">{{ badge.description || '暂无描述' }}</p>
+                    <div class="my-badge-meta">
+                      <span class="my-badge-club">{{ badge.clubName }}</span>
+                      <span class="my-badge-date">获得于 {{ formatDate(badge.grantedTime) }}</span>
+                    </div>
+                    <div v-if="badge.grantedByName" class="my-badge-granted">
+                      授予人：{{ badge.grantedByName }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
@@ -140,8 +169,9 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { userApi } from '../api/user'
+import { badgeApi } from '../api/badge'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound } from '@element-plus/icons-vue'
+import { ChatDotRound, Medal } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const activeTab = ref('edit')
@@ -152,6 +182,7 @@ const profile = reactive<any>({})
 const myActivities = ref<any[]>([])
 const myInteractions = ref<any[]>([])
 const notifications = ref<any[]>([])
+const myBadges = ref<any[]>([])
 
 const editFormRef = ref<FormInstance>()
 const editForm = reactive({ realName: '', studentId: '', avatar: '' })
@@ -161,7 +192,7 @@ const editRules: FormRules = {
 
 onMounted(async () => {
   await loadProfile()
-  await Promise.all([loadActivities(), loadInteractions(), loadNotifications()])
+  await Promise.all([loadActivities(), loadInteractions(), loadNotifications(), loadMyBadges()])
 })
 
 async function loadProfile() {
@@ -195,6 +226,14 @@ async function loadNotifications() {
     notifications.value = (await userApi.getNotifications()) as any
   } catch (err) {
     console.error('Failed to fetch notifications:', err)
+  }
+}
+
+async function loadMyBadges() {
+  try {
+    myBadges.value = (await badgeApi.getMyBadges()) as any
+  } catch (err) {
+    console.error('Failed to fetch badges:', err)
   }
 }
 
@@ -320,4 +359,84 @@ function formatDate(dt: string) {
 .notif-title { font-weight: 600; margin-bottom: 4px; }
 .notif-content { color: #606266; font-size: 14px; }
 .text-muted { color: #c0c4cc; font-size: 12px; }
+
+.my-badges-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.my-badge-card {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.my-badge-card:hover {
+  background: #ecf5ff;
+}
+
+.my-badge-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.my-badge-icon img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.my-badge-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.my-badge-name {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.my-badge-desc {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #909399;
+  line-height: 1.5;
+}
+
+.my-badge-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.my-badge-club {
+  padding: 2px 8px;
+  background: #fff;
+  color: #409eff;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.my-badge-granted {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+}
 </style>

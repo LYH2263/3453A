@@ -26,6 +26,10 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>互动社区</span>
         </el-menu-item>
+        <el-menu-item index="/badges">
+          <el-icon><Medal /></el-icon>
+          <span>徽章墙</span>
+        </el-menu-item>
         <el-menu-item index="/profile">
           <el-icon><User /></el-icon>
           <span>个人中心</span>
@@ -145,7 +149,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { userApi } from '../api/user'
-import { Bell, ArrowDown, User, SwitchButton } from '@element-plus/icons-vue'
+import { Bell, ArrowDown, User, SwitchButton, Medal } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -251,6 +255,7 @@ const currentRouteName = computed(() => {
     '/activities': '活动中心',
     '/assets': '物资管理',
     '/interaction': '互动社区',
+    '/badges': '徽章墙',
     '/profile': '个人中心',
     '/admin/users': '用户管理',
     '/admin/dashboard': '管理看板',
