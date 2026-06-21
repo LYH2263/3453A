@@ -472,9 +472,24 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
 
     @Override
     @Transactional
-    public Result<?> expandCapacity(Integer activityId, Integer newMaxCount, Integer operatorId) {
+    public Result<?> expandCapacity(Integer activityId, Integer newMaxCount) {
         Activity activity = activityMapper.selectByIdForUpdate(activityId);
         if (activity == null) return Result.error("活动不存在");
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return Result.error("尚未认证");
+
+        User currentUser = userMapper.selectOne(
+            new LambdaQueryWrapper<User>().eq(User::getUsername, auth.getName()));
+        if (currentUser == null) return Result.error("用户不存在");
+
+        if (!com.club.common.RoleConstants.CLUB_LEADER.equals(currentUser.getRole())) {
+            return Result.error("只有社团负责人才能扩容");
+        }
+
+        if (!activity.getClubId().equals(currentUser.getClubId())) {
+            return Result.error("只有主办社团负责人才能扩容此活动");
+        }
 
         if (newMaxCount == null || newMaxCount <= 0) {
             return Result.error("人数上限必须大于0");
@@ -483,6 +498,8 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         if (activity.getMaxCount() != null && newMaxCount <= activity.getMaxCount()) {
             return Result.error("新的人数上限必须大于当前上限");
         }
+
+        int operatorId = currentUser.getId();
 
         int oldMax = activity.getMaxCount() != null ? activity.getMaxCount() : 0;
         int availableSlots = newMaxCount - oldMax;

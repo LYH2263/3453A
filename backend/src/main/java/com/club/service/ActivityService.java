@@ -19,7 +19,7 @@ public interface ActivityService extends IService<Activity> {
     Result<?> cancelRegistration(Integer activityId, Integer userId);
     Result<?> leaveWaitlist(Integer activityId, Integer userId);
     Result<?> getWaitlistInfo(Integer activityId, Integer userId);
-    Result<?> expandCapacity(Integer activityId, Integer newMaxCount, Integer operatorId);
+    Result<?> expandCapacity(Integer activityId, Integer newMaxCount);
     Result<?> getActivityDetail(Integer activityId, Integer userId);
     Result<?> confirmCoHost(Integer activityId, Integer coHostId, String status, String reason);
     Result<?> getMyPendingCoHosts();

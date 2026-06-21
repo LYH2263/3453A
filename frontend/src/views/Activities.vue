@@ -1231,8 +1231,7 @@ const handleExpand = (act: any) => {
 const submitExpand = async () => {
   try {
     const res: any = await request.post(`/activities/${expandForm.value.activityId}/expand`, {
-      newMaxCount: expandForm.value.newMaxCount,
-      operatorId: userStore.userInfo?.id
+      newMaxCount: expandForm.value.newMaxCount
     })
     ElMessage.success(`扩容成功！已自动递补 ${res.promotedCount} 名候补给用户`)
     showExpandDialog.value = false

@@ -100,8 +100,7 @@ public class ActivityController {
     @PostMapping("/{id}/expand")
     public Result<?> expandCapacity(@PathVariable Integer id, @RequestBody Map<String, Object> params) {
         Integer newMaxCount = (Integer) params.get("newMaxCount");
-        Integer operatorId = (Integer) params.get("operatorId");
-        return activityService.expandCapacity(id, newMaxCount, operatorId);
+        return activityService.expandCapacity(id, newMaxCount);
     }
 
     @PostMapping("/{id}/signin")
