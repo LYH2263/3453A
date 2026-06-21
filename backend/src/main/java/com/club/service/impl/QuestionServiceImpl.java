@@ -65,6 +65,7 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             map.put("createTime", q.getCreateTime());
             map.put("targetRole", q.getTargetRole());
             map.put("targetClubId", q.getTargetClubId());
+            map.put("authorId", q.getAuthorId());
 
             User author = userMapper.selectById(q.getAuthorId());
             map.put("authorName", author != null ? author.getRealName() : "未知");

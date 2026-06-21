@@ -252,11 +252,28 @@
       <div v-for="ans in currentAnswers" :key="ans.id" class="answer-item mb-20" :class="{ 'best-answer': ans.isBest }">
         <div class="ans-meta">
           <strong>{{ ans.authorName }}</strong> ({{ ans.authorRole }})
-          <el-tag v-if="ans.isBest" type="success" size="small" style="margin-left:10px">最佳回答</el-tag>
+          <el-tag v-if="ans.isBest" type="success" size="small" style="margin-left:10px">🏆 最佳回答</el-tag>
         </div>
         <p>{{ ans.content }}</p>
-        <div v-if="currentQuestion && currentQuestion.authorId === userStore.userInfo?.id && !ans.isBest" style="text-align:right">
-          <el-button size="small" type="success" plain @click="markBest(ans.id)">采纳为最佳</el-button>
+        <div class="ans-actions">
+          <el-button 
+            text 
+            size="small" 
+            :type="ans.hasVoted ? 'danger' : ''" 
+            @click="voteAnswer(ans)"
+          >
+            {{ ans.hasVoted ? '👍 已赞' : '👍 点赞' }} {{ ans.votesCount || 0 }}
+          </el-button>
+          <span style="flex:1"></span>
+          <el-button 
+            v-if="isQuestionAuthor && !ans.isBest" 
+            size="small" 
+            type="success" 
+            plain 
+            @click="markBest(ans.id)"
+          >
+            采纳为最佳
+          </el-button>
         </div>
       </div>
       <el-empty v-if="!currentAnswers.length" description="暂无回答" />
@@ -283,7 +300,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, onMounted, watch, nextTick, computed } from 'vue'
 import { useUserStore } from '../store/user'
 import request from '../utils/request'
 import { ElMessage } from 'element-plus'
@@ -545,6 +562,10 @@ const loadAnswers = async (qid: number) => {
     console.error('Failed to fetch answers:', err)
   }
 }
+
+const isQuestionAuthor = computed(() => {
+  return currentQuestion.value && currentQuestion.value.authorId === userStore.userInfo?.id
+})
 const submitAnswer = async () => {
   try {
     await request.post('/qa/answers', { questionId: currentQuestion.value.id, content: myAnswer.value })
@@ -562,6 +583,18 @@ const markBest = async (ansId: number) => {
     loadAnswers(currentQuestion.value.id)
   } catch (err) {
     console.error('Mark best answer failed:', err)
+  }
+}
+
+const voteAnswer = async (ans: any) => {
+  try {
+    const result = await request.post(`/qa/answers/${ans.id}/vote`) as any
+    if (result) {
+      ans.votesCount = result.votesCount
+      ans.hasVoted = result.hasVoted
+    }
+  } catch (err) {
+    console.error('Vote answer failed:', err)
   }
 }
 
@@ -679,4 +712,5 @@ watch(() => route.query, () => {
 .answer-item { padding: 15px; background: #f5f7fa; border-radius: 6px; }
 .best-answer { border: 1px solid #67c23a; background: #f0f9eb; }
 .ans-meta { margin-bottom: 8px; font-size: 13px; color: #303133; }
+.ans-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 </style>

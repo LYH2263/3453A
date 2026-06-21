@@ -8,4 +8,5 @@ public interface AnswerService extends IService<Answer> {
     Result<?> publishAnswer(Answer answer);
     Result<?> getAnswers(Integer questionId);
     Result<?> markBestAnswer(Integer id);
+    Result<?> voteAnswer(Integer answerId);
 }

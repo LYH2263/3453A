@@ -44,4 +44,9 @@ public class QAController {
     public Result<?> markBestAnswer(@PathVariable Integer id) {
         return answerService.markBestAnswer(id);
     }
+
+    @PostMapping("/answers/{id}/vote")
+    public Result<?> voteAnswer(@PathVariable Integer id) {
+        return answerService.voteAnswer(id);
+    }
 }

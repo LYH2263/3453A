@@ -11,7 +11,10 @@ public class Answer {
     private Integer authorId;
     private String content;
     private Integer isBest;
-    
+
+    @Version
+    private Integer version;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
@@ -30,6 +33,9 @@ public class Answer {
     public Integer getIsBest() { return isBest; }
     public void setIsBest(Integer isBest) { this.isBest = isBest; }
 
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
+
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
 
@@ -37,9 +43,17 @@ public class Answer {
     private String authorName;
     @TableField(exist = false)
     private String authorRole;
+    @TableField(exist = false)
+    private Integer votesCount;
+    @TableField(exist = false)
+    private Boolean hasVoted;
 
     public String getAuthorName() { return authorName; }
     public void setAuthorName(String authorName) { this.authorName = authorName; }
     public String getAuthorRole() { return authorRole; }
     public void setAuthorRole(String authorRole) { this.authorRole = authorRole; }
+    public Integer getVotesCount() { return votesCount; }
+    public void setVotesCount(Integer votesCount) { this.votesCount = votesCount; }
+    public Boolean getHasVoted() { return hasVoted; }
+    public void setHasVoted(Boolean hasVoted) { this.hasVoted = hasVoted; }
 }
