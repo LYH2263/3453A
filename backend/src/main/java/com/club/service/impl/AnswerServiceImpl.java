@@ -109,22 +109,23 @@ public class AnswerServiceImpl extends ServiceImpl<AnswerMapper, Answer> impleme
         Answer answer = this.getById(id);
         if (answer == null) return Result.error("回答不存在");
 
-        Question q = questionMapper.selectById(answer.getQuestionId());
-        if (q == null || !q.getAuthorId().equals(user.getId())) {
+        Question q = questionMapper.selectByIdForUpdate(answer.getQuestionId());
+        if (q == null) return Result.error("问题不存在");
+        if (!q.getAuthorId().equals(user.getId())) {
             return Result.error("只有提问者可以采纳最佳答案");
         }
 
         if (answer.getIsBest() != null && answer.getIsBest() == 1) {
-            return Result.error("该回答已是最佳答案");
+            return Result.error("已被采纳");
         }
 
-        List<Answer> sameQuestionAnswers = this.list(
+        Long bestCount = this.count(
                 new LambdaQueryWrapper<Answer>()
                         .eq(Answer::getQuestionId, answer.getQuestionId())
                         .eq(Answer::getIsBest, 1)
         );
-        if (!sameQuestionAnswers.isEmpty()) {
-            return Result.error("该问题已有最佳答案，已被采纳");
+        if (bestCount != null && bestCount > 0) {
+            return Result.error("已被采纳");
         }
 
         this.update(
@@ -138,10 +139,10 @@ public class AnswerServiceImpl extends ServiceImpl<AnswerMapper, Answer> impleme
         try {
             boolean updated = this.updateById(answer);
             if (!updated) {
-                return Result.error("已被采纳，采纳失败");
+                return Result.error("已被采纳");
             }
         } catch (OptimisticLockingFailureException e) {
-            return Result.error("已被采纳，并发冲突");
+            return Result.error("已被采纳");
         }
 
         return Result.success(null);
