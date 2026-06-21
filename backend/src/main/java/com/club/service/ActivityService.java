@@ -25,4 +25,5 @@ public interface ActivityService extends IService<Activity> {
     Result<?> getMyPendingCoHosts();
     Result<ActivityFeedbackStats> getActivityFeedbackStats(Integer activityId);
     Result<?> getFeedbackList(String sentiment, Integer activityId, Integer clubId);
+    Result<?> getCalendarActivities(String start, String end, Integer clubId);
 }

@@ -2,6 +2,32 @@
   <div class="activities-page">
     <div class="toolbar glass-card mb-20" v-if="userStore.role && ['ADMIN', 'UNION_ADMIN', 'CLUB_LEADER'].includes(userStore.role)">
       <el-button type="success" :icon="Plus" @click="showAddDialog = true">发起活动</el-button>
+      <div class="view-switch-wrapper" v-show="activeTab === 'all'">
+        <el-radio-group v-model="viewMode" size="default" @change="handleViewModeChange">
+          <el-radio-button label="list">
+            <el-icon><List /></el-icon>
+            <span>列表视图</span>
+          </el-radio-button>
+          <el-radio-button label="calendar">
+            <el-icon><Calendar /></el-icon>
+            <span>日历视图</span>
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+    </div>
+    <div class="toolbar glass-card mb-20 view-switch-toolbar" v-if="!userStore.role || !['ADMIN', 'UNION_ADMIN', 'CLUB_LEADER'].includes(userStore.role)">
+      <div class="view-switch-wrapper" v-show="activeTab === 'all'">
+        <el-radio-group v-model="viewMode" size="default" @change="handleViewModeChange">
+          <el-radio-button label="list">
+            <el-icon><List /></el-icon>
+            <span>列表视图</span>
+          </el-radio-button>
+          <el-radio-button label="calendar">
+            <el-icon><Calendar /></el-icon>
+            <span>日历视图</span>
+          </el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <el-tabs v-model="activeTab" class="mb-20">
@@ -15,8 +41,9 @@
     </el-tabs>
 
     <div v-show="activeTab === 'all'">
-      <el-row :gutter="20">
-        <el-col :span="8" v-for="act in activities" :key="act.id" class="mb-20">
+      <div v-show="viewMode === 'list'">
+        <el-row :gutter="20">
+          <el-col :span="8" v-for="act in activities" :key="act.id" class="mb-20">
           <el-card class="act-card hover-lift glass-card" :body-style="{ padding: '0px' }">
             <div class="card-cover" v-if="act.poster">
               <el-image :src="act.poster" fit="cover" style="width: 100%; height: 120px" />
@@ -117,7 +144,113 @@
           </el-card>
         </el-col>
       </el-row>
+      </div>
+
+      <div v-show="viewMode === 'calendar'" class="calendar-view">
+        <el-calendar v-model="calendarCurrentDate">
+          <template #date-cell="{ data }">
+            <div
+              class="calendar-cell"
+              :class="{ 'is-selected': selectedDate && formatDateKey(selectedDate) === data.day, 'is-today': isToday(data.day) }"
+              @click="handleDateClick(data.day)">
+              <div class="cell-date">{{ data.day.split('-').slice(2).join('') }}</div>
+              <div class="cell-activities">
+                <div
+                  v-for="act in getActivitiesForDate(data.day)"
+                  :key="act.id"
+                  class="cell-activity-item"
+                  :class="getCalendarActivityClass(act)"
+                  @click.stop="handleCalendarActivityClick(act)">
+                  <span class="dot"></span>
+                  <span class="act-title">{{ truncateText(act.title, 6) }}</span>
+                </div>
+                <div v-if="getActivitiesForDate(data.day).length > 3" class="cell-more">
+                  +{{ getActivitiesForDate(data.day).length - 3 }}
+                </div>
+              </div>
+            </div>
+          </template>
+        </el-calendar>
+      </div>
     </div>
+
+    <el-dialog v-model="showDayActivitiesDialog" :title="selectedDateTitle" width="600px" class="day-activities-dialog">
+      <div v-if="selectedDateActivities.length === 0" class="empty-day">
+        <el-empty description="该日期暂无活动" :image-size="80" />
+      </div>
+      <div v-else class="day-activities-list">
+        <div
+          v-for="act in selectedDateActivities"
+          :key="act.id"
+          class="day-activity-card glass-card">
+          <div class="day-activity-header">
+            <h4 class="day-activity-title">{{ act.title }}</h4>
+            <el-tag :type="statusType(act.status)" size="small">{{ statusText(act.status) }}</el-tag>
+          </div>
+          <div class="day-activity-meta">
+            <span class="meta-item">
+              <el-icon><Clock /></el-icon>
+              {{ formatActivityTime(act) }}
+            </span>
+            <span class="meta-item">
+              <el-icon><Location /></el-icon>
+              {{ act.location }}
+            </span>
+          </div>
+          <div class="day-activity-actions">
+            <el-button v-if="canAuditFromCalendar(act)" type="warning" size="small" @click="handleAuditFromCalendar(act)">
+              审核
+            </el-button>
+            <template v-if="act.status === 'APPROVED'">
+              <template v-if="!act._detail?.myStatus || act._detail?.myStatus === 'CANCELLED'">
+                <el-button
+                  :type="act._detail?.isFull ? 'warning' : 'primary'"
+                  size="small"
+                  @click="handleRegisterFromCalendar(act)">
+                  {{ act._detail?.isFull ? '加入候补' : '立即报名' }}
+                </el-button>
+              </template>
+              <template v-else-if="act._detail?.myStatus === 'WAITLIST'">
+                <el-button type="info" size="small" @click="handleLeaveWaitlist(findActivityById(act.id))">
+                  取消候补
+                </el-button>
+              </template>
+              <template v-else-if="act._detail?.myStatus === 'REGISTERED'">
+                <el-button type="danger" size="small" @click="handleCancel(findActivityById(act.id))">
+                  取消报名
+                </el-button>
+              </template>
+              <el-button v-if="canExpand(findActivityById(act.id))" type="success" size="small" @click="handleExpand(findActivityById(act.id))">
+                扩容
+              </el-button>
+            </template>
+            <el-button v-if="canEdit(findActivityById(act.id))" type="primary" size="small" @click="handleEdit(findActivityById(act.id))">编辑</el-button>
+            <el-button v-if="canDelete(findActivityById(act.id))" type="danger" size="small" @click="handleDelete(findActivityById(act.id))">删除</el-button>
+            <el-button
+              v-if="canFeedback(findActivityById(act.id))"
+              type="primary"
+              size="small"
+              @click="handleFeedback(findActivityById(act.id))">
+              反馈
+            </el-button>
+            <el-button
+              v-if="canViewStats(findActivityById(act.id))"
+              type="warning"
+              size="small"
+              @click="handleViewStats(findActivityById(act.id))">
+              反馈统计
+            </el-button>
+            <el-button
+              v-if="act.status === 'APPROVED' && userStore.role === 'CLUB_LEADER' && findActivityById(act.id)?.clubId === userStore.userInfo?.clubId"
+              type="success"
+              size="small"
+              @click="handleFinish(act.id)">
+              结束活动
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
 
     <div v-show="activeTab === 'pending'">
       <el-empty v-if="pendingCoHosts.length === 0" description="暂无待确认的合作活动" />
@@ -531,8 +664,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Plus, Location, Calendar, InfoFilled, Download } from '@element-plus/icons-vue'
+import { ref, onMounted, watch, computed } from 'vue'
+import { Plus, Location, Calendar, InfoFilled, Download, List, Clock } from '@element-plus/icons-vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../store/user'
@@ -561,12 +694,30 @@ interface Activity {
   }
 }
 
+interface CalendarActivity {
+  id: number
+  title: string
+  startTime: string
+  endTime: string
+  location: string
+  clubId: number
+  status: string
+  _detail?: Activity['_detail']
+}
+
 const userStore = useUserStore()
 const activities = ref<Activity[]>([])
 const pendingCoHosts = ref<any[]>([])
 const showAddDialog = ref(false)
 const activeTab = ref('all')
 const clubOptions = ref<any[]>([])
+
+const viewMode = ref<'list' | 'calendar'>('list')
+const calendarCurrentDate = ref(new Date())
+const calendarActivities = ref<CalendarActivity[]>([])
+const selectedDate = ref<Date | null>(null)
+const selectedDateActivities = ref<CalendarActivity[]>([])
+const showDayActivitiesDialog = ref(false)
 
 const fetchActivities = async () => {
   try {
@@ -608,6 +759,166 @@ const fetchPendingCoHosts = async () => {
     console.error('Failed to fetch pending co-hosts:', err)
   }
 }
+
+const formatDateTime = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const formatDateKey = (date: Date | string): string => {
+  if (typeof date === 'string') {
+    return date
+  }
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+const getMonthRange = (date: Date): { start: Date; end: Date } => {
+  const year = date.getFullYear()
+  const month = date.getMonth()
+  const start = new Date(year, month, 1)
+  const end = new Date(year, month + 1, 0, 23, 59, 59)
+  return { start, end }
+}
+
+const fetchCalendarActivities = async () => {
+  try {
+    const { start, end } = getMonthRange(calendarCurrentDate.value)
+    const params = new URLSearchParams({
+      start: formatDateTime(start),
+      end: formatDateTime(end)
+    })
+    const res: any = await request.get(`/activities/calendar?${params.toString()}`)
+    calendarActivities.value = res || []
+    for (const act of calendarActivities.value) {
+      const listAct = activities.value.find(a => a.id === act.id)
+      if (listAct) {
+        act._detail = listAct._detail
+      } else {
+        await loadCalendarActivityDetail(act)
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch calendar activities:', err)
+  }
+}
+
+const loadCalendarActivityDetail = async (act: CalendarActivity) => {
+  try {
+    const res: any = await request.get(`/activities/${act.id}/detail?userId=${userStore.userInfo?.id || ''}`)
+    act._detail = res
+  } catch (err) {
+    console.error('Failed to load calendar activity detail:', err)
+  }
+}
+
+const isActivityOnDate = (act: CalendarActivity, dateStr: string): boolean => {
+  const parseDate = (s: string): Date => {
+    const clean = s.replace('T', ' ').substring(0, 19)
+    return new Date(clean.replace(/-/g, '/'))
+  }
+  const actStart = parseDate(act.startTime)
+  const actEnd = parseDate(act.endTime)
+  const targetDate = new Date(dateStr.replace(/-/g, '/'))
+  targetDate.setHours(0, 0, 0, 0)
+  const nextDay = new Date(targetDate)
+  nextDay.setDate(nextDay.getDate() + 1)
+
+  const startOfDay = targetDate.getTime()
+  const endOfDay = nextDay.getTime() - 1
+
+  return actStart.getTime() <= endOfDay && actEnd.getTime() >= startOfDay
+}
+
+const getActivitiesForDate = (dateStr: string): CalendarActivity[] => {
+  return calendarActivities.value.filter(act => isActivityOnDate(act, dateStr))
+}
+
+const selectedDateTitle = computed(() => {
+  if (!selectedDate.value) return ''
+  const d = selectedDate.value
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 活动列表`
+})
+
+const isToday = (dateStr: string): boolean => {
+  const today = new Date()
+  return formatDateKey(today) === dateStr
+}
+
+const truncateText = (text: string, maxLen: number): string => {
+  if (!text) return ''
+  return text.length > maxLen ? text.substring(0, maxLen) + '...' : text
+}
+
+const getCalendarActivityClass = (act: CalendarActivity): string => {
+  if (act.status === 'FINISHED') return 'act-finished'
+  return 'act-approved'
+}
+
+const handleViewModeChange = (mode: string) => {
+  if (mode === 'calendar') {
+    fetchCalendarActivities()
+  }
+}
+
+const handleDateClick = (dayStr: string) => {
+  const parts = dayStr.split('-')
+  selectedDate.value = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+  selectedDateActivities.value = getActivitiesForDate(dayStr)
+  showDayActivitiesDialog.value = true
+}
+
+const handleCalendarActivityClick = (act: CalendarActivity) => {
+  const parts = (act.startTime.replace('T', ' ').substring(0, 10)).split('-')
+  selectedDate.value = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+  selectedDateActivities.value = getActivitiesForDate(formatDateKey(selectedDate.value))
+  showDayActivitiesDialog.value = true
+}
+
+const findActivityById = (id: number): Activity | undefined => {
+  return activities.value.find(a => a.id === id)
+}
+
+const canAuditFromCalendar = (act: CalendarActivity): boolean => {
+  const listAct = findActivityById(act.id)
+  if (!listAct) return false
+  return canAudit(listAct)
+}
+
+const handleAuditFromCalendar = (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    handleAudit(listAct)
+  }
+}
+
+const handleRegisterFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleRegister(listAct)
+    await fetchCalendarActivities()
+  }
+}
+
+const formatActivityTime = (act: CalendarActivity): string => {
+  const parseTime = (s: string): string => {
+    const clean = s.replace('T', ' ')
+    if (clean.includes(' ')) {
+      const [date, time] = clean.split(' ')
+      const t = time.substring(0, 5)
+      const [, m, d] = date.split('-')
+      return `${m}-${d} ${t}`
+    }
+    return clean
+  }
+  return `${parseTime(act.startTime)} ~ ${parseTime(act.endTime)}`
+}
+
+watch(calendarCurrentDate, () => {
+  if (viewMode.value === 'calendar') {
+    fetchCalendarActivities()
+  }
+})
 
 const statusType = (s: string) => {
   if (s === 'DRAFT_COCONFIRM') return 'info'
@@ -1142,6 +1453,173 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.view-switch-wrapper {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+}
+.view-switch-wrapper :deep(.el-radio-button__inner) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+}
+.view-switch-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 15px 20px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.calendar-view {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 20px;
+}
+.calendar-view :deep(.el-calendar) {
+  --el-calendar-border: 1px solid #ebeef5;
+}
+.calendar-view :deep(.el-calendar__header) {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--el-calendar-border);
+}
+.calendar-view :deep(.el-calendar__body) {
+  padding: 0;
+}
+.calendar-cell {
+  min-height: 100px;
+  padding: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+  position: relative;
+}
+.calendar-cell:hover {
+  background-color: #f5f7fa;
+}
+.calendar-cell.is-today {
+  background-color: #ecf5ff;
+}
+.calendar-cell.is-selected {
+  background-color: #409eff20;
+  outline: 2px solid #409eff;
+}
+.cell-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 6px;
+}
+.calendar-view :deep(.el-calendar-table .el-calendar-day) {
+  padding: 0;
+  height: 120px;
+}
+.calendar-view :deep(.el-calendar-table .el-calendar-day:hover) {
+  background-color: transparent;
+}
+.calendar-view :deep(.el-calendar-table td.is-selected .el-calendar-day) {
+  background-color: transparent;
+}
+.calendar-view :deep(.el-calendar-table td.prev-month .cell-date),
+.calendar-view :deep(.el-calendar-table td.next-month .cell-date) {
+  color: #c0c4cc;
+}
+.cell-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cell-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cell-activity-item.act-approved {
+  background-color: #e1f3d8;
+  color: #67c23a;
+}
+.cell-activity-item.act-finished {
+  background-color: #f4f4f5;
+  color: #909399;
+}
+.cell-activity-item .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cell-activity-item.act-approved .dot {
+  background-color: #67c23a;
+}
+.cell-activity-item.act-finished .dot {
+  background-color: #909399;
+}
+.cell-activity-item .act-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cell-more {
+  font-size: 11px;
+  color: #909399;
+  padding: 2px 4px;
+}
+.empty-day {
+  padding: 40px 0;
+}
+.day-activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+.day-activity-card {
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+.day-activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.day-activity-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+.day-activity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #606266;
+}
+.day-activity-meta .meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.day-activity-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .act-card {
   height: auto;
   min-height: 320px;

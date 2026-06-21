@@ -148,4 +148,12 @@ public class ActivityController {
             @RequestParam(required = false) Integer clubId) {
         return activityService.getFeedbackList(sentiment, activityId, clubId);
     }
+
+    @GetMapping("/calendar")
+    public Result<?> getCalendar(
+            @RequestParam String start,
+            @RequestParam String end,
+            @RequestParam(required = false) Integer clubId) {
+        return activityService.getCalendarActivities(start, end, clubId);
+    }
 }

@@ -832,4 +832,75 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
 
         return Result.success(list);
     }
+
+    @Override
+    public Result<?> getCalendarActivities(String start, String end, Integer clubId) {
+        LocalDateTime startDateTime = parseDateTime(start);
+        LocalDateTime endDateTime = parseDateTime(end);
+
+        if (startDateTime == null || endDateTime == null) {
+            return Result.error("日期参数格式错误，应为 YYYY-MM-DD HH:mm:ss");
+        }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Integer effectiveClubId = clubId;
+
+        if (auth != null && auth.getName() != null) {
+            String username = auth.getName();
+            User currentUser = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+            if (currentUser != null) {
+                String role = currentUser.getRole();
+                if (com.club.common.RoleConstants.CLUB_LEADER.equals(role)) {
+                    effectiveClubId = currentUser.getClubId();
+                } else if (com.club.common.RoleConstants.ADMIN.equals(role)
+                        || com.club.common.RoleConstants.UNION_ADMIN.equals(role)) {
+                } else {
+                    effectiveClubId = null;
+                }
+            }
+        }
+
+        LambdaQueryWrapper<Activity> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(Activity::getStatus, "APPROVED", "FINISHED");
+        queryWrapper.and(w -> w
+            .and(w1 -> w1.le(Activity::getStartTime, endDateTime).ge(Activity::getEndTime, startDateTime))
+            .or(w1 -> w1.between(Activity::getStartTime, startDateTime, endDateTime))
+            .or(w1 -> w1.between(Activity::getEndTime, startDateTime, endDateTime))
+        );
+
+        if (effectiveClubId != null) {
+            queryWrapper.eq(Activity::getClubId, effectiveClubId);
+        }
+
+        List<Activity> activities = this.list(queryWrapper);
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Activity act : activities) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", act.getId());
+            item.put("title", act.getTitle());
+            item.put("startTime", act.getStartTime());
+            item.put("endTime", act.getEndTime());
+            item.put("location", act.getLocation());
+            item.put("clubId", act.getClubId());
+            item.put("status", act.getStatus());
+            result.add(item);
+        }
+
+        return Result.success(result);
+    }
+
+    private LocalDateTime parseDateTime(String dateTimeStr) {
+        if (dateTimeStr == null || dateTimeStr.isEmpty()) return null;
+        try {
+            return LocalDateTime.parse(dateTimeStr,
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (Exception e) {
+            try {
+                return LocalDateTime.parse(dateTimeStr);
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+    }
 }
