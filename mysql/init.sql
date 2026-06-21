@@ -164,6 +164,35 @@ CREATE TABLE IF NOT EXISTS recruitment_applications (
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) COMMENT='招新报名表';
 
+-- 物资表
+CREATE TABLE IF NOT EXISTS club_assets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL COMMENT '器材名称',
+    specification VARCHAR(200) DEFAULT NULL COMMENT '规格',
+    stock INT NOT NULL DEFAULT 0 COMMENT '库存数量',
+    deposit DECIMAL(10, 2) DEFAULT 0.00 COMMENT '押金',
+    club_id INT NOT NULL COMMENT '所属社团ID',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    is_deleted TINYINT(1) DEFAULT 0 COMMENT '逻辑删除',
+    FOREIGN KEY (club_id) REFERENCES clubs(id)
+) COMMENT='物资表';
+
+-- 物资借还记录表
+CREATE TABLE IF NOT EXISTS asset_borrow_records (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT NOT NULL COMMENT '物资ID',
+    borrower_id INT NOT NULL COMMENT '借用人ID',
+    quantity INT NOT NULL DEFAULT 1 COMMENT '借用数量',
+    status ENUM('PENDING', 'APPROVED', 'RETURNED', 'REJECTED') NOT NULL DEFAULT 'PENDING' COMMENT '状态',
+    borrow_time DATETIME DEFAULT NULL COMMENT '借出时间',
+    return_time DATETIME DEFAULT NULL COMMENT '归还时间',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    FOREIGN KEY (asset_id) REFERENCES club_assets(id),
+    FOREIGN KEY (borrower_id) REFERENCES users(id)
+) COMMENT='物资借还记录表';
+
 -- 问答社区：问题表
 CREATE TABLE IF NOT EXISTS questions (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -253,6 +282,18 @@ INSERT INTO recruitment_applications (recruitment_id, user_id, resume_text, stat
 INSERT INTO questions (id, title, content, author_id, target_club_id, target_role) VALUES
 (1, '社团管理系统如何申请账号？', '我是大一新生，想加入社团，请问系统账号是统一分配还是自己注册？', 6, NULL, 'ADMIN'),
 (2, '极客社的项目经费如何报销？', '作为项目负责人，想了解具体的报销流程和所需票据。', 3, 1, 'CLUB_LEADER');
+
+-- 物资数据
+INSERT INTO club_assets (id, name, specification, stock, deposit, club_id) VALUES
+(1, 'Arduino开发板', 'UNO R3', 20, 50.00, 1),
+(2, '投影仪', 'EPSON EB-X500', 3, 200.00, 1),
+(3, '吉他', '41寸民谣吉他', 5, 150.00, 2),
+(4, '音箱', 'JBL EON612', 4, 180.00, 2);
+
+-- 物资借还记录
+INSERT INTO asset_borrow_records (asset_id, borrower_id, quantity, status, borrow_time, return_time) VALUES
+(1, 5, 2, 'APPROVED', '2024-03-10 10:00:00', NULL),
+(3, 6, 1, 'RETURNED', '2024-03-05 14:00:00', '2024-03-12 16:00:00');
 
 -- 回答
 INSERT INTO answers (question_id, author_id, content, is_best) VALUES

@@ -60,6 +60,21 @@ public class SecurityConfig {
                 // 活动审核仅社联/管理员
                 .requestMatchers("/api/activities/*/audit").hasAnyRole(
                     RoleConstants.ADMIN, RoleConstants.UNION_ADMIN)
+                // 物资借还申请：所有登录用户可申请
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/assets/borrow").authenticated()
+                // 物资审批：社团负责人及以上
+                .requestMatchers("/api/assets/borrow/*/approve", "/api/assets/borrow/*/reject").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                // 物资归还确认：社团负责人及以上
+                .requestMatchers("/api/assets/borrow/*/return").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                // 物资管理：登记/修改/删除仅社团负责人及以上
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/assets").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/assets/**").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/assets/**").hasAnyRole(
+                    RoleConstants.ADMIN, RoleConstants.UNION_ADMIN, RoleConstants.CLUB_LEADER)
                 // 其余接口需登录
                 .anyRequest().authenticated()
             )

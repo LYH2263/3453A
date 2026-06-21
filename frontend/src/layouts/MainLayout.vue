@@ -18,6 +18,10 @@
           <el-icon><Football /></el-icon>
           <span>活动中心</span>
         </el-menu-item>
+        <el-menu-item index="/assets">
+          <el-icon><Box /></el-icon>
+          <span>物资管理</span>
+        </el-menu-item>
         <el-menu-item index="/interaction">
           <el-icon><ChatDotRound /></el-icon>
           <span>互动社区</span>
@@ -119,6 +123,7 @@ const currentRouteName = computed(() => {
     '/dashboard': '数据看板',
     '/clubs': '社团列表',
     '/activities': '活动中心',
+    '/assets': '物资管理',
     '/interaction': '互动社区',
     '/profile': '个人中心',
     '/admin/users': '用户管理',
