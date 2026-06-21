@@ -13,6 +13,7 @@ public class ActivityRegistration {
     private Integer rating;
     private String feedback;
     private String reply;
+    private Integer waitlistOrder;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
@@ -39,6 +40,9 @@ public class ActivityRegistration {
 
     public String getReply() { return reply; }
     public void setReply(String reply) { this.reply = reply; }
+
+    public Integer getWaitlistOrder() { return waitlistOrder; }
+    public void setWaitlistOrder(Integer waitlistOrder) { this.waitlistOrder = waitlistOrder; }
 
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }

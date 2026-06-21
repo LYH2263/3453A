@@ -20,8 +20,48 @@
               <span><el-icon><Location /></el-icon> {{ act.location }}</span>
               <span><el-icon><Calendar /></el-icon> {{ act.startTime?.split('T')[0] }}</span>
             </div>
+            <div class="enrollment-info">
+              <span class="enrollment-count">
+                已报名: {{ act._detail?.registeredCount || 0 }} / {{ act.maxCount }}
+                <span v-if="act._detail?.waitlistCount > 0" class="waitlist-count">
+                  (候补: {{ act._detail.waitlistCount }})
+                </span>
+              </span>
+              <el-tag v-if="act._detail?.isFull" type="danger" size="small">已满员</el-tag>
+            </div>
+            <div class="my-status" v-if="act._detail?.myStatus && act._detail.myStatus !== 'CANCELLED'">
+              <el-tag :type="myStatusType(act._detail.myStatus)" size="small">
+                {{ myStatusText(act._detail) }}
+              </el-tag>
+            </div>
             <div class="actions">
-              <el-button type="primary" size="small" @click="handleRegister(act)">立即报名</el-button>
+              <template v-if="act.status === 'APPROVED'">
+                <template v-if="!act._detail?.myStatus || act._detail.myStatus === 'CANCELLED'">
+                  <el-button 
+                    :type="act._detail?.isFull ? 'warning' : 'primary'" 
+                    size="small" 
+                    @click="handleRegister(act)">
+                    {{ act._detail?.isFull ? '加入候补' : '立即报名' }}
+                  </el-button>
+                </template>
+                <template v-else-if="act._detail.myStatus === 'WAITLIST'">
+                  <el-button type="info" size="small" @click="handleLeaveWaitlist(act)">
+                    取消候补
+                  </el-button>
+                </template>
+                <template v-else-if="act._detail.myStatus === 'REGISTERED'">
+                  <el-button type="danger" size="small" @click="handleCancel(act)">
+                    取消报名
+                  </el-button>
+                </template>
+                <el-button 
+                  v-if="canExpand(act)" 
+                  type="success" 
+                  size="small" 
+                  @click="handleExpand(act)">
+                  扩容
+                </el-button>
+              </template>
               <el-button v-if="canAudit(act)" type="warning" size="small" @click="handleAudit(act)">审核</el-button>
               <el-button v-if="act.status === 'APPROVED' && userStore.role === 'CLUB_LEADER'" type="success" size="small" @click="handleFinish(act.id)">结束活动</el-button>
             </div>
@@ -82,14 +122,46 @@
         <el-button type="primary" @click="submitAudit">确认</el-button>
       </template>
     </el-dialog>
+
+    <!-- 扩容弹窗 -->
+    <el-dialog v-model="showExpandDialog" title="活动扩容" width="400px">
+      <el-form :model="expandForm" label-width="100px">
+        <el-form-item label="活动名称">
+          <span>{{ expandForm.activityTitle }}</span>
+        </el-form-item>
+        <el-form-item label="当前上限">
+          <span>{{ expandForm.currentMaxCount }}</span>
+        </el-form-item>
+        <el-form-item label="当前报名">
+          <span>{{ expandForm.registeredCount }} 人</span>
+        </el-form-item>
+        <el-form-item label="候补人数">
+          <span>{{ expandForm.waitlistCount }} 人</span>
+        </el-form-item>
+        <el-form-item label="新的上限" required>
+          <el-input-number 
+            v-model="expandForm.newMaxCount" 
+            :min="expandForm.currentMaxCount + 1"
+            :max="9999" />
+        </el-form-item>
+        <div v-if="expandForm.waitlistCount > 0" class="expand-hint">
+          <el-icon><InfoFilled /></el-icon>
+          扩容后将自动递补最多 {{ Math.min(expandForm.waitlistCount, expandForm.newMaxCount - expandForm.currentMaxCount) }} 名候补给用户
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="showExpandDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitExpand">确认扩容</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Plus, Location, Calendar } from '@element-plus/icons-vue'
+import { Plus, Location, Calendar, InfoFilled } from '@element-plus/icons-vue'
 import request from '../utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../store/user'
 
 interface Activity {
@@ -99,7 +171,15 @@ interface Activity {
   location: string
   startTime: string
   status: string
+  maxCount: number
   poster?: string
+  _detail?: {
+    registeredCount: number
+    waitlistCount: number
+    isFull: boolean
+    myStatus: string | null
+    myPosition: number | null
+  }
 }
 
 const userStore = useUserStore()
@@ -110,8 +190,20 @@ const fetchActivities = async () => {
   try {
     const res: any = await request.get('/activities')
     activities.value = res
+    for (const act of activities.value) {
+      await loadActivityDetail(act)
+    }
   } catch (err) {
     console.error('Failed to fetch activities:', err)
+  }
+}
+
+const loadActivityDetail = async (act: Activity) => {
+  try {
+    const res: any = await request.get(`/activities/${act.id}/detail?userId=${userStore.userInfo?.id || ''}`)
+    act._detail = res
+  } catch (err) {
+    console.error('Failed to load activity detail:', err)
   }
 }
 
@@ -128,18 +220,74 @@ const statusText = (s: string) => {
   return map[s] || s
 }
 
+const myStatusType = (s: string) => {
+  if (s === 'REGISTERED') return 'success'
+  if (s === 'SIGNED_IN') return 'primary'
+  if (s === 'WAITLIST') return 'warning'
+  if (s === 'CANCELLED') return 'info'
+  return 'info'
+}
+
+const myStatusText = (detail: any) => {
+  const map: any = { 
+    REGISTERED: '已报名', 
+    SIGNED_IN: '已签到', 
+    WAITLIST: `候补中 - 第${detail.myPosition}位`, 
+    CANCELLED: '已取消' 
+  }
+  return map[detail.myStatus] || detail.myStatus
+}
+
 const canAudit = (act: any) => {
   if (act.status === 'PENDING_UNION' && userStore.role === 'UNION_ADMIN') return true;
   if (act.status === 'PENDING_SCHOOL' && userStore.role === 'ADMIN') return true;
   return false;
 }
 
+const canExpand = (act: any) => {
+  return userStore.role === 'CLUB_LEADER' && act.clubId === userStore.userInfo?.clubId
+}
+
 const handleRegister = async (act: any) => {
   try {
-    await request.post(`/activities/${act.id}/register?userId=${userStore.userInfo?.id}`)
-    ElMessage.success('报名成功')
-  } catch (err) {
+    const res: any = await request.post(`/activities/${act.id}/register?userId=${userStore.userInfo?.id}`)
+    ElMessage.success(res.message || '操作成功')
+    loadActivityDetail(act)
+  } catch (err: any) {
     console.error('Registration failed:', err)
+    ElMessage.error(err.message || '操作失败')
+  }
+}
+
+const handleCancel = async (act: any) => {
+  try {
+    await ElMessageBox.confirm('确定要取消报名吗？取消后名额将自动让给候补给用户。', '确认取消', {
+      type: 'warning'
+    })
+    const res: any = await request.post(`/activities/${act.id}/cancel?userId=${userStore.userInfo?.id}`)
+    ElMessage.success(res.message || '取消报名成功')
+    loadActivityDetail(act)
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      console.error('Cancel failed:', err)
+      ElMessage.error(err.message || '操作失败')
+    }
+  }
+}
+
+const handleLeaveWaitlist = async (act: any) => {
+  try {
+    await ElMessageBox.confirm('确定要退出候补队列吗？', '确认退出', {
+      type: 'warning'
+    })
+    const res: any = await request.post(`/activities/${act.id}/leave-waitlist?userId=${userStore.userInfo?.id}`)
+    ElMessage.success(res.message || '已退出候补')
+    loadActivityDetail(act)
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      console.error('Leave waitlist failed:', err)
+      ElMessage.error(err.message || '操作失败')
+    }
   }
 }
 
@@ -177,6 +325,43 @@ const submitAudit = async () => {
   }
 }
 
+const showExpandDialog = ref(false)
+const expandForm = ref({
+  activityId: 0,
+  activityTitle: '',
+  currentMaxCount: 0,
+  registeredCount: 0,
+  waitlistCount: 0,
+  newMaxCount: 0
+})
+
+const handleExpand = (act: any) => {
+  expandForm.value = {
+    activityId: act.id,
+    activityTitle: act.title,
+    currentMaxCount: act.maxCount,
+    registeredCount: act._detail?.registeredCount || 0,
+    waitlistCount: act._detail?.waitlistCount || 0,
+    newMaxCount: act.maxCount + 1
+  }
+  showExpandDialog.value = true
+}
+
+const submitExpand = async () => {
+  try {
+    const res: any = await request.post(`/activities/${expandForm.value.activityId}/expand`, {
+      newMaxCount: expandForm.value.newMaxCount,
+      operatorId: userStore.userInfo?.id
+    })
+    ElMessage.success(`扩容成功！已自动递补 ${res.promotedCount} 名候补给用户`)
+    showExpandDialog.value = false
+    fetchActivities()
+  } catch (err: any) {
+    console.error('Expand failed:', err)
+    ElMessage.error(err.message || '扩容失败')
+  }
+}
+
 const handleFinish = async (id: number) => {
   try {
     await request.post(`/activities/${id}/finish`)
@@ -193,7 +378,7 @@ onMounted(fetchActivities)
 <style scoped>
 .act-card {
   height: auto;
-  min-height: 220px;
+  min-height: 320px;
 }
 .card-cover {
   width: 100%;
@@ -230,14 +415,48 @@ onMounted(fetchActivities)
   font-size: 12px;
   color: #999;
 }
+.enrollment-info {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #666;
+}
+.enrollment-count {
+  font-weight: 500;
+}
+.waitlist-count {
+  color: #e6a23c;
+  margin-left: 5px;
+}
+.my-status {
+  margin-top: 10px;
+}
 .actions {
-  margin-top: 20px;
+  margin-top: 15px;
   text-align: right;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 .mb-20 {
   margin-bottom: 20px;
 }
 .toolbar {
   padding: 15px 20px;
+}
+.expand-hint {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 4px;
+  color: #409eff;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

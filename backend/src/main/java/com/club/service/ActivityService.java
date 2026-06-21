@@ -11,4 +11,9 @@ public interface ActivityService extends IService<Activity> {
     Result<?> feedback(Integer activityId, Integer userId, Integer rating, String feedback);
     Result<?> finishActivity(Integer id);
     Result<?> replyFeedback(Integer activityId, Integer userId, String reply);
+    Result<?> cancelRegistration(Integer activityId, Integer userId);
+    Result<?> leaveWaitlist(Integer activityId, Integer userId);
+    Result<?> getWaitlistInfo(Integer activityId, Integer userId);
+    Result<?> expandCapacity(Integer activityId, Integer newMaxCount, Integer operatorId);
+    Result<?> getActivityDetail(Integer activityId, Integer userId);
 }

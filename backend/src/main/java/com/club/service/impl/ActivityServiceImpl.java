@@ -1,6 +1,7 @@
 package com.club.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.club.common.Result;
 import com.club.entity.*;
@@ -10,6 +11,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> implements ActivityService {
@@ -17,6 +22,10 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     private RegistrationMapper registrationMapper;
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private ActivityPromotionLogMapper promotionLogMapper;
+    @Autowired
+    private ActivityMapper activityMapper;
 
     @Override
     public Result<?> createActivity(Activity activity) {
@@ -68,27 +77,299 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     }
 
     @Override
+    @Transactional
     public Result<?> register(Integer activityId, Integer userId) {
-        Activity activity = this.getById(activityId);
+        Activity activity = activityMapper.selectByIdForUpdate(activityId);
         if (activity == null) return Result.error("活动不存在");
+        if (!"APPROVED".equals(activity.getStatus())) return Result.error("活动未审核通过，无法报名");
 
-        long count = registrationMapper.selectCount(new LambdaQueryWrapper<ActivityRegistration>()
+        ActivityRegistration existing = registrationMapper.selectOne(
+            new LambdaQueryWrapper<ActivityRegistration>()
                 .eq(ActivityRegistration::getActivityId, activityId)
                 .eq(ActivityRegistration::getUserId, userId));
-        if (count > 0) return Result.error("已报过名");
 
-        long currentEnrollment = registrationMapper.selectCount(new LambdaQueryWrapper<ActivityRegistration>()
-                .eq(ActivityRegistration::getActivityId, activityId));
-        if (activity.getMaxCount() != null && currentEnrollment >= activity.getMaxCount()) {
-            return Result.error("活动人数已报满");
+        if (existing != null) {
+            if ("CANCELLED".equals(existing.getStatus())) {
+                return handleReRegister(activity, existing);
+            }
+            if ("WAITLIST".equals(existing.getStatus())) {
+                return Result.error("您已在候补队列中");
+            }
+            return Result.error("已报过名");
         }
 
+        long registeredCount = registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .in(ActivityRegistration::getStatus, "REGISTERED", "SIGNED_IN"));
+
+        if (activity.getMaxCount() != null && registeredCount < activity.getMaxCount()) {
+            return registerDirectly(activityId, userId);
+        } else {
+            return joinWaitlist(activityId, userId);
+        }
+    }
+
+    private Result<?> handleReRegister(Activity activity, ActivityRegistration existing) {
+        long registeredCount = registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, existing.getActivityId())
+                .in(ActivityRegistration::getStatus, "REGISTERED", "SIGNED_IN"));
+
+        if (activity.getMaxCount() != null && registeredCount < activity.getMaxCount()) {
+            existing.setStatus("REGISTERED");
+            existing.setWaitlistOrder(null);
+            registrationMapper.updateById(existing);
+            return Result.success("报名成功");
+        } else {
+            int waitlistCount = Math.toIntExact(registrationMapper.selectCount(
+                new LambdaQueryWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, existing.getActivityId())
+                    .eq(ActivityRegistration::getStatus, "WAITLIST")));
+            existing.setStatus("WAITLIST");
+            existing.setWaitlistOrder(waitlistCount + 1);
+            registrationMapper.updateById(existing);
+            return Result.success("加入候补成功，当前排位：" + (waitlistCount + 1));
+        }
+    }
+
+    private Result<?> registerDirectly(Integer activityId, Integer userId) {
         ActivityRegistration reg = new ActivityRegistration();
         reg.setActivityId(activityId);
         reg.setUserId(userId);
         reg.setStatus("REGISTERED");
         registrationMapper.insert(reg);
-        return Result.success(null);
+        return Result.success("报名成功");
+    }
+
+    private Result<?> joinWaitlist(Integer activityId, Integer userId) {
+        int waitlistCount = Math.toIntExact(registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getStatus, "WAITLIST")));
+
+        ActivityRegistration reg = new ActivityRegistration();
+        reg.setActivityId(activityId);
+        reg.setUserId(userId);
+        reg.setStatus("WAITLIST");
+        reg.setWaitlistOrder(waitlistCount + 1);
+        registrationMapper.insert(reg);
+
+        return Result.success("加入候补成功，当前排位：" + (waitlistCount + 1));
+    }
+
+    @Override
+    @Transactional
+    public Result<?> cancelRegistration(Integer activityId, Integer userId) {
+        Activity activity = activityMapper.selectByIdForUpdate(activityId);
+        if (activity == null) return Result.error("活动不存在");
+
+        ActivityRegistration reg = registrationMapper.selectOne(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getUserId, userId));
+
+        if (reg == null) return Result.error("未报名该活动");
+        if ("CANCELLED".equals(reg.getStatus())) return Result.error("您已取消报名");
+        if ("SIGNED_IN".equals(reg.getStatus())) return Result.error("已签到活动无法取消");
+        if ("WAITLIST".equals(reg.getStatus())) {
+            return leaveWaitlistInternal(reg);
+        }
+
+        reg.setStatus("CANCELLED");
+        reg.setWaitlistOrder(null);
+        registrationMapper.updateById(reg);
+
+        promoteNextWaitlist(activityId, userId, "CANCEL");
+
+        return Result.success("取消报名成功");
+    }
+
+    @Override
+    @Transactional
+    public Result<?> leaveWaitlist(Integer activityId, Integer userId) {
+        ActivityRegistration reg = registrationMapper.selectOne(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getUserId, userId));
+
+        if (reg == null || !"WAITLIST".equals(reg.getStatus())) {
+            return Result.error("您不在候补队列中");
+        }
+
+        return leaveWaitlistInternal(reg);
+    }
+
+    private Result<?> leaveWaitlistInternal(ActivityRegistration reg) {
+        int removedOrder = reg.getWaitlistOrder();
+        reg.setStatus("CANCELLED");
+        reg.setWaitlistOrder(null);
+        registrationMapper.updateById(reg);
+
+        registrationMapper.update(null,
+            new LambdaUpdateWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, reg.getActivityId())
+                .eq(ActivityRegistration::getStatus, "WAITLIST")
+                .gt(ActivityRegistration::getWaitlistOrder, removedOrder)
+                .setSql("waitlist_order = waitlist_order - 1"));
+
+        return Result.success("已退出候补队列");
+    }
+
+    private void promoteNextWaitlist(Integer activityId, Integer triggerUserId, String source) {
+        ActivityRegistration next = registrationMapper.selectOne(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getStatus, "WAITLIST")
+                .orderByAsc(ActivityRegistration::getWaitlistOrder)
+                .last("LIMIT 1"));
+
+        if (next != null) {
+            int originalOrder = next.getWaitlistOrder();
+            next.setStatus("REGISTERED");
+            next.setWaitlistOrder(null);
+            registrationMapper.updateById(next);
+
+            ActivityPromotionLog log = new ActivityPromotionLog();
+            log.setActivityId(activityId);
+            log.setUserId(next.getUserId());
+            log.setOriginalOrder(originalOrder);
+            log.setSource(source);
+            log.setTriggerUserId(triggerUserId);
+            promotionLogMapper.insert(log);
+
+            registrationMapper.update(null,
+                new LambdaUpdateWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, activityId)
+                    .eq(ActivityRegistration::getStatus, "WAITLIST")
+                    .gt(ActivityRegistration::getWaitlistOrder, originalOrder)
+                    .setSql("waitlist_order = waitlist_order - 1"));
+        }
+    }
+
+    @Override
+    public Result<?> getWaitlistInfo(Integer activityId, Integer userId) {
+        Map<String, Object> info = new HashMap<>();
+
+        ActivityRegistration reg = registrationMapper.selectOne(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getUserId, userId));
+
+        boolean inWaitlist = reg != null && "WAITLIST".equals(reg.getStatus());
+        info.put("inWaitlist", inWaitlist);
+        info.put("myPosition", inWaitlist ? reg.getWaitlistOrder() : null);
+
+        long waitlistTotal = registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getStatus, "WAITLIST"));
+        info.put("waitlistTotal", waitlistTotal);
+
+        return Result.success(info);
+    }
+
+    @Override
+    public Result<?> getActivityDetail(Integer activityId, Integer userId) {
+        Activity activity = this.getById(activityId);
+        if (activity == null) return Result.error("活动不存在");
+
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("activity", activity);
+
+        long registeredCount = registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .in(ActivityRegistration::getStatus, "REGISTERED", "SIGNED_IN"));
+        detail.put("registeredCount", registeredCount);
+
+        long waitlistCount = registrationMapper.selectCount(
+            new LambdaQueryWrapper<ActivityRegistration>()
+                .eq(ActivityRegistration::getActivityId, activityId)
+                .eq(ActivityRegistration::getStatus, "WAITLIST"));
+        detail.put("waitlistCount", waitlistCount);
+
+        boolean isFull = activity.getMaxCount() != null && registeredCount >= activity.getMaxCount();
+        detail.put("isFull", isFull);
+
+        if (userId != null) {
+            ActivityRegistration reg = registrationMapper.selectOne(
+                new LambdaQueryWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, activityId)
+                    .eq(ActivityRegistration::getUserId, userId));
+
+            detail.put("myStatus", reg != null ? reg.getStatus() : null);
+            detail.put("myPosition", reg != null && "WAITLIST".equals(reg.getStatus()) ? reg.getWaitlistOrder() : null);
+        }
+
+        return Result.success(detail);
+    }
+
+    @Override
+    @Transactional
+    public Result<?> expandCapacity(Integer activityId, Integer newMaxCount, Integer operatorId) {
+        Activity activity = activityMapper.selectByIdForUpdate(activityId);
+        if (activity == null) return Result.error("活动不存在");
+
+        if (newMaxCount == null || newMaxCount <= 0) {
+            return Result.error("人数上限必须大于0");
+        }
+
+        if (activity.getMaxCount() != null && newMaxCount <= activity.getMaxCount()) {
+            return Result.error("新的人数上限必须大于当前上限");
+        }
+
+        int oldMax = activity.getMaxCount() != null ? activity.getMaxCount() : 0;
+        int availableSlots = newMaxCount - oldMax;
+
+        activity.setMaxCount(newMaxCount);
+        this.updateById(activity);
+
+        int promotedCount = 0;
+        for (int i = 0; i < availableSlots; i++) {
+            long currentRegistered = registrationMapper.selectCount(
+                new LambdaQueryWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, activityId)
+                    .in(ActivityRegistration::getStatus, "REGISTERED", "SIGNED_IN"));
+
+            if (currentRegistered >= newMaxCount) break;
+
+            ActivityRegistration next = registrationMapper.selectOne(
+                new LambdaQueryWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, activityId)
+                    .eq(ActivityRegistration::getStatus, "WAITLIST")
+                    .orderByAsc(ActivityRegistration::getWaitlistOrder)
+                    .last("LIMIT 1"));
+
+            if (next == null) break;
+
+            int originalOrder = next.getWaitlistOrder();
+            next.setStatus("REGISTERED");
+            next.setWaitlistOrder(null);
+            registrationMapper.updateById(next);
+
+            ActivityPromotionLog log = new ActivityPromotionLog();
+            log.setActivityId(activityId);
+            log.setUserId(next.getUserId());
+            log.setOriginalOrder(originalOrder);
+            log.setSource("EXPAND");
+            log.setTriggerUserId(operatorId);
+            promotionLogMapper.insert(log);
+
+            registrationMapper.update(null,
+                new LambdaUpdateWrapper<ActivityRegistration>()
+                    .eq(ActivityRegistration::getActivityId, activityId)
+                    .eq(ActivityRegistration::getStatus, "WAITLIST")
+                    .gt(ActivityRegistration::getWaitlistOrder, originalOrder)
+                    .setSql("waitlist_order = waitlist_order - 1"));
+
+            promotedCount++;
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("newMaxCount", newMaxCount);
+        result.put("promotedCount", promotedCount);
+        return Result.success(result);
     }
 
     @Override
@@ -97,6 +378,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
                 .eq(ActivityRegistration::getActivityId, activityId)
                 .eq(ActivityRegistration::getUserId, userId));
         if (reg == null) return Result.error("未报名该活动");
+        if (!"REGISTERED".equals(reg.getStatus())) return Result.error("只有已报名状态才能签到");
         reg.setStatus("SIGNED_IN");
         registrationMapper.updateById(reg);
         return Result.success(null);
@@ -113,6 +395,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         registrationMapper.updateById(reg);
         return Result.success(null);
     }
+
     @Override
     public Result<?> finishActivity(Integer id) {
         Activity activity = this.getById(id);

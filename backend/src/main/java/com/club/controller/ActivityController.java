@@ -34,6 +34,33 @@ public class ActivityController {
         return activityService.register(id, userId);
     }
 
+    @PostMapping("/{id}/cancel")
+    public Result<?> cancel(@PathVariable Integer id, @RequestParam Integer userId) {
+        return activityService.cancelRegistration(id, userId);
+    }
+
+    @PostMapping("/{id}/leave-waitlist")
+    public Result<?> leaveWaitlist(@PathVariable Integer id, @RequestParam Integer userId) {
+        return activityService.leaveWaitlist(id, userId);
+    }
+
+    @GetMapping("/{id}/waitlist")
+    public Result<?> getWaitlist(@PathVariable Integer id, @RequestParam(required = false) Integer userId) {
+        return activityService.getWaitlistInfo(id, userId);
+    }
+
+    @GetMapping("/{id}/detail")
+    public Result<?> getDetail(@PathVariable Integer id, @RequestParam(required = false) Integer userId) {
+        return activityService.getActivityDetail(id, userId);
+    }
+
+    @PostMapping("/{id}/expand")
+    public Result<?> expandCapacity(@PathVariable Integer id, @RequestBody Map<String, Object> params) {
+        Integer newMaxCount = (Integer) params.get("newMaxCount");
+        Integer operatorId = (Integer) params.get("operatorId");
+        return activityService.expandCapacity(id, newMaxCount, operatorId);
+    }
+
     @PostMapping("/{id}/signin")
     public Result<?> signin(@PathVariable Integer id, @RequestParam Integer userId) {
         return activityService.signin(id, userId);

@@ -59,15 +59,30 @@ CREATE TABLE IF NOT EXISTS activity_registrations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     activity_id INT NOT NULL COMMENT '活动ID',
     user_id INT NOT NULL COMMENT '用户ID',
-    status ENUM('REGISTERED', 'SIGNED_IN') NOT NULL DEFAULT 'REGISTERED' COMMENT '报名状态',
+    status ENUM('REGISTERED', 'SIGNED_IN', 'WAITLIST', 'CANCELLED') NOT NULL DEFAULT 'REGISTERED' COMMENT '报名状态: REGISTERED-已报名, SIGNED_IN-已签到, WAITLIST-候补中, CANCELLED-已取消',
     rating INT DEFAULT NULL COMMENT '评分(1-5)',
     feedback TEXT DEFAULT NULL COMMENT '反馈内容',
     reply TEXT DEFAULT NULL COMMENT '负责人回复',
+    waitlist_order INT DEFAULT NULL COMMENT '候补序号',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '报名时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     FOREIGN KEY (activity_id) REFERENCES activities(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE KEY uk_activity_user (activity_id, user_id)
 ) COMMENT='活动报名表';
+
+-- 递补日志表
+CREATE TABLE IF NOT EXISTS activity_promotion_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    activity_id INT NOT NULL COMMENT '活动ID',
+    user_id INT NOT NULL COMMENT '递补用户ID',
+    original_order INT NOT NULL COMMENT '原候补序号',
+    source ENUM('CANCEL', 'EXPAND') NOT NULL COMMENT '递补来源: CANCEL-取消报名触发, EXPAND-扩容触发',
+    trigger_user_id INT DEFAULT NULL COMMENT '触发用户ID(取消报名的用户或扩容负责人)',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '递补时间',
+    FOREIGN KEY (activity_id) REFERENCES activities(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+) COMMENT='递补日志表';
 
 -- 公告表
 CREATE TABLE IF NOT EXISTS announcements (
