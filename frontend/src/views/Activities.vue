@@ -468,15 +468,15 @@
           <span>¥{{ coHostConfirmForm.budget }}</span>
         </div>
       </div>
-      <el-form :model="coHostConfirmForm" label-width="80px" style="margin-top: 20px">
+      <el-form :model="coHostConfirmForm" :rules="coHostConfirmRules" ref="coHostConfirmFormRef" label-width="80px" style="margin-top: 20px">
         <el-form-item label="确认结果">
           <el-radio-group v-model="coHostConfirmForm.status">
             <el-radio label="CONFIRMED">确认合作</el-radio>
             <el-radio label="REJECTED">拒绝</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="备注说明" v-if="coHostConfirmForm.status === 'REJECTED'">
-          <el-input v-model="coHostConfirmForm.reason" type="textarea" placeholder="请输入拒绝原因" />
+        <el-form-item label="拒绝原因" v-if="coHostConfirmForm.status === 'REJECTED'" prop="reason" required>
+          <el-input v-model="coHostConfirmForm.reason" type="textarea" placeholder="请输入拒绝原因" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -1384,6 +1384,7 @@ const handleExportFeedback = async () => {
 }
 
 const showCoHostConfirmDialog = ref(false)
+const coHostConfirmFormRef = ref()
 const coHostConfirmForm = ref({
   activityId: 0,
   coHostId: 0,
@@ -1397,6 +1398,11 @@ const coHostConfirmForm = ref({
   status: 'CONFIRMED',
   reason: ''
 })
+const coHostConfirmRules = {
+  reason: [
+    { required: true, message: '请输入拒绝原因', trigger: 'blur' }
+  ]
+}
 
 const handleCoHostConfirm = (act: any) => {
   const myClubId = userStore.userInfo?.clubId
@@ -1455,6 +1461,13 @@ const handleRejectFromList = (item: any) => {
 
 const submitCoHostConfirm = async () => {
   try {
+    if (coHostConfirmForm.value.status === 'REJECTED') {
+      if (!coHostConfirmForm.value.reason || coHostConfirmForm.value.reason.trim() === '') {
+        ElMessage.warning('请输入拒绝原因')
+        return
+      }
+      await coHostConfirmFormRef.value.validateField('reason')
+    }
     const { activityId, coHostId, status, reason } = coHostConfirmForm.value
     await request.post(`/activities/${activityId}/co-hosts/${coHostId}/confirm`, { status, reason })
     ElMessage.success('操作成功')
@@ -1462,8 +1475,10 @@ const submitCoHostConfirm = async () => {
     fetchActivities()
     fetchPendingCoHosts()
   } catch (err: any) {
-    console.error('Co-host confirm failed:', err)
-    ElMessage.error(err.message || '操作失败')
+    if (err !== false) {
+      console.error('Co-host confirm failed:', err)
+      ElMessage.error(err.message || '操作失败')
+    }
   }
 }
 

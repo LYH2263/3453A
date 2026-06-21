@@ -652,13 +652,25 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
                 this.updateById(activity);
             }
         } else if ("REJECTED".equals(status)) {
+            if (reason == null || reason.trim().isEmpty()) {
+                return Result.error("拒绝原因不能为空");
+            }
             coHost.setStatus("REJECTED");
             coHost.setConfirmTime(LocalDateTime.now());
             coHost.setRejectReason(reason);
             coHostMapper.updateById(coHost);
 
+            coHostMapper.update(null,
+                new LambdaUpdateWrapper<ActivityCoHost>()
+                    .eq(ActivityCoHost::getActivityId, activityId)
+                    .eq(ActivityCoHost::getStatus, "PENDING")
+                    .set(ActivityCoHost::getStatus, "REJECTED")
+                    .set(ActivityCoHost::getRejectReason, "活动已被其他合作社团拒绝")
+                    .set(ActivityCoHost::getConfirmTime, LocalDateTime.now())
+            );
+
             activity.setStatus("REJECTED");
-            activity.setRejectReason("合作社团拒绝：" + (reason != null ? reason : "未说明原因"));
+            activity.setRejectReason("合作社团拒绝：" + reason);
             this.updateById(activity);
         } else {
             return Result.error("无效的状态值");
@@ -690,6 +702,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         for (ActivityCoHost coHost : coHosts) {
             Activity activity = this.getById(coHost.getActivityId());
             if (activity == null) continue;
+            if (!"DRAFT_COCONFIRM".equals(activity.getStatus())) continue;
 
             Club hostClub = clubMapper.selectById(activity.getClubId());
 
