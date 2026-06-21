@@ -7,6 +7,7 @@ import com.club.mapper.ActivityMapper;
 import com.club.mapper.ClubMapper;
 import com.club.mapper.RegistrationMapper;
 import com.club.mapper.TopicMapper;
+import com.club.service.BudgetLimitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,8 @@ public class AdminStatController {
     private RegistrationMapper registrationMapper;
     @Autowired
     private TopicMapper topicMapper;
+    @Autowired
+    private BudgetLimitService budgetLimitService;
 
     @Operation(summary = "查询仪表盘核心指标")
     @Log("查询仪表盘核心指标")
@@ -71,10 +74,8 @@ public class AdminStatController {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Club club : clubs) {
             BigDecimal currentBudget = activityMapper.sumMonthlyBudget(club.getId());
-            BigDecimal limit = club.getMonthlyBudgetLimit();
-            if (limit == null || limit.compareTo(BigDecimal.ZERO) <= 0) {
-                limit = new BigDecimal("5000");
-            }
+            BudgetLimitService.BudgetLimitResult resolved = budgetLimitService.resolveBudgetLimit(club.getId());
+            BigDecimal limit = resolved.limit;
             BigDecimal rate = currentBudget.multiply(new BigDecimal("100"))
                     .divide(limit, 1, RoundingMode.HALF_UP);
 
@@ -84,6 +85,7 @@ public class AdminStatController {
             item.put("currentBudget", currentBudget);
             item.put("budgetLimit", limit);
             item.put("utilizationRate", rate);
+            item.put("limitFromClub", resolved.fromClub);
             result.add(item);
         }
         return Result.success(result);

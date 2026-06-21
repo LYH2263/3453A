@@ -9,6 +9,7 @@ import com.club.dto.SentimentAnalysisResult;
 import com.club.entity.*;
 import com.club.mapper.*;
 import com.club.service.ActivityService;
+import com.club.service.BudgetLimitService;
 import com.club.service.SentimentAnalysisService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -42,45 +43,20 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     @Autowired
     private ClubMapper clubMapper;
     @Autowired
-    private AuditConfigMapper auditConfigMapper;
-    @Autowired
     private ActivityCoHostMapper coHostMapper;
     @Autowired
     private SentimentAnalysisService sentimentAnalysisService;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private BudgetLimitService budgetLimitService;
 
-    private Result<?> checkBudgetLimit(Integer clubId, BigDecimal newBudget, BigDecimal oldBudget, Boolean forceBudget) {
+    private Result<?> checkBudgetLimit(Integer clubId, BigDecimal newBudget, BigDecimal oldBudget, String budgetToken) {
         if (newBudget == null || newBudget.compareTo(BigDecimal.ZERO) <= 0) return null;
 
-        Club club = clubMapper.selectById(clubId);
-        if (club == null) return null;
-
-        BigDecimal limit = club.getMonthlyBudgetLimit();
-        String enforceMode = club.getBudgetEnforceMode();
-
-        if (limit == null || limit.compareTo(BigDecimal.ZERO) <= 0) {
-            AuditConfig defaultConfig = auditConfigMapper.selectOne(
-                new LambdaQueryWrapper<AuditConfig>()
-                    .eq(AuditConfig::getType, "MONTHLY_BUDGET_LIMIT")
-                    .eq(AuditConfig::getIsActive, 1));
-            if (defaultConfig != null && defaultConfig.getNodes() != null) {
-                try {
-                    String nodes = defaultConfig.getNodes();
-                    if (nodes.contains("defaultLimit")) {
-                        String limitStr = nodes.replaceAll(".*\"defaultLimit\"\\s*:\\s*", "").replaceAll("[^0-9.].*", "").trim();
-                        if (!limitStr.isEmpty()) limit = new BigDecimal(limitStr);
-                    }
-                    if (enforceMode == null && nodes.contains("defaultEnforceMode")) {
-                        String mode = nodes.replaceAll(".*\"defaultEnforceMode\"\\s*:\\s*\"", "").replaceAll("\".*", "").trim();
-                        if (!mode.isEmpty()) enforceMode = mode;
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-
-        if (limit == null || limit.compareTo(BigDecimal.ZERO) <= 0) return null;
-        if (enforceMode == null) enforceMode = "SOFT";
+        BudgetLimitService.BudgetLimitResult resolved = budgetLimitService.resolveBudgetLimit(clubId);
+        BigDecimal limit = resolved.limit;
+        String enforceMode = resolved.enforceMode;
 
         BigDecimal currentSum = activityMapper.sumMonthlyBudget(clubId);
         BigDecimal projectedTotal = currentSum;
@@ -93,12 +69,29 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
             if ("HARD".equals(enforceMode)) {
                 return Result.error(4003, "月度预算已超限（当前合计：" + projectedTotal + "元，上限：" + limit + "元），不允许发起活动");
             }
-            if (Boolean.TRUE.equals(forceBudget)) return null;
+
+            if (budgetToken != null && !budgetToken.trim().isEmpty()) {
+                Map<String, Object> verified = budgetLimitService.verifyBudgetToken(budgetToken);
+                if (verified != null) {
+                    Integer tokenClubId = (Integer) verified.get("clubId");
+                    BigDecimal tokenProjectedTotal = (BigDecimal) verified.get("projectedTotal");
+                    BigDecimal tokenLimit = (BigDecimal) verified.get("limit");
+                    if (tokenClubId != null && tokenClubId.equals(clubId)
+                        && tokenProjectedTotal != null && tokenProjectedTotal.compareTo(projectedTotal) == 0
+                        && tokenLimit != null && tokenLimit.compareTo(limit) == 0) {
+                        return null;
+                    }
+                }
+                return Result.error(4004, "预算确认凭证已失效或不匹配，请重新确认");
+            }
+
+            String token = budgetLimitService.generateBudgetToken(clubId, projectedTotal, limit);
             Map<String, Object> data = new HashMap<>();
             data.put("budgetWarning", true);
             data.put("currentTotal", currentSum);
             data.put("projectedTotal", projectedTotal);
             data.put("limit", limit);
+            data.put("budgetToken", token);
             return Result.success(data);
         }
         return null;
@@ -106,7 +99,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
 
     @Override
     @Transactional
-    public Result<?> createActivity(Activity activity, Boolean forceBudget, List<Integer> coHostClubIds) {
+    public Result<?> createActivity(Activity activity, String budgetToken, List<Integer> coHostClubIds) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         Integer currentUserId = null;
         Integer currentUserClubId = null;
@@ -124,7 +117,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         }
 
         if (activity.getClubId() != null) {
-            Result<?> budgetCheck = checkBudgetLimit(activity.getClubId(), activity.getBudget(), null, forceBudget);
+            Result<?> budgetCheck = checkBudgetLimit(activity.getClubId(), activity.getBudget(), null, budgetToken);
             if (budgetCheck != null) return budgetCheck;
         }
 
@@ -163,7 +156,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
     }
 
     @Override
-    public Result<?> updateActivity(Integer id, Activity activity, Boolean forceBudget) {
+    public Result<?> updateActivity(Integer id, Activity activity, String budgetToken) {
         Activity existing = this.getById(id);
         if (existing == null) return Result.error("活动不存在");
 
@@ -174,7 +167,7 @@ public class ActivityServiceImpl extends ServiceImpl<ActivityMapper, Activity> i
         if (activity.getClubId() != null || existing.getClubId() != null) {
             Integer clubId = existing.getClubId() != null ? existing.getClubId() : activity.getClubId();
             BigDecimal newBudget = activity.getBudget() != null ? activity.getBudget() : existing.getBudget();
-            Result<?> budgetCheck = checkBudgetLimit(clubId, newBudget, existing.getBudget(), forceBudget);
+            Result<?> budgetCheck = checkBudgetLimit(clubId, newBudget, existing.getBudget(), budgetToken);
             if (budgetCheck != null) return budgetCheck;
         }
 

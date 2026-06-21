@@ -7,8 +7,8 @@ import com.club.entity.Activity;
 import java.util.List;
 
 public interface ActivityService extends IService<Activity> {
-    Result<?> createActivity(Activity activity, Boolean forceBudget, List<Integer> coHostClubIds);
-    Result<?> updateActivity(Integer id, Activity activity, Boolean forceBudget);
+    Result<?> createActivity(Activity activity, String budgetToken, List<Integer> coHostClubIds);
+    Result<?> updateActivity(Integer id, Activity activity, String budgetToken);
     Result<?> deleteActivity(Integer id);
     Result<?> auditActivity(Integer id, String status, String reason);
     Result<?> register(Integer activityId, Integer userId);

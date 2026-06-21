@@ -22,7 +22,7 @@ public class ActivityController {
 
     @PostMapping
     public Result<?> create(@RequestBody ActivityCreateDTO dto,
-                            @RequestParam(required = false, defaultValue = "false") Boolean forceBudget) {
+                            @RequestParam(required = false) String budgetToken) {
         Activity activity = new Activity();
         activity.setTitle(dto.getTitle());
         activity.setDescription(dto.getDescription());
@@ -38,7 +38,7 @@ public class ActivityController {
         activity.setBudget(dto.getBudget());
         activity.setPoster(dto.getPoster());
 
-        return activityService.createActivity(activity, forceBudget, dto.getCoHostClubIds());
+        return activityService.createActivity(activity, budgetToken, dto.getCoHostClubIds());
     }
 
     private java.time.LocalDateTime parseDateTime(String dateTimeStr) {
@@ -58,8 +58,8 @@ public class ActivityController {
     @PutMapping("/{id}")
     public Result<?> update(@PathVariable Integer id,
                             @RequestBody Activity activity,
-                            @RequestParam(required = false, defaultValue = "false") Boolean forceBudget) {
-        return activityService.updateActivity(id, activity, forceBudget);
+                            @RequestParam(required = false) String budgetToken) {
+        return activityService.updateActivity(id, activity, budgetToken);
     }
 
     @DeleteMapping("/{id}")

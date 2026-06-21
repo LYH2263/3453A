@@ -1097,6 +1097,11 @@ const submitAdd = async () => {
 
 const forceSubmitAdd = async () => {
   try {
+    if (!budgetWarningInfo.value.budgetToken) {
+      ElMessage.error('预算确认凭证已失效，请重新提交表单')
+      showBudgetWarningDialog.value = false
+      return
+    }
     const requestData: any = {
       title: addForm.value.title,
       description: addForm.value.description,
@@ -1110,7 +1115,13 @@ const forceSubmitAdd = async () => {
     if (addForm.value.coHostClubIds && addForm.value.coHostClubIds.length > 0) {
       requestData.coHostClubIds = addForm.value.coHostClubIds
     }
-    await request.post('/activities?forceBudget=true', requestData)
+    const res: any = await request.post(`/activities?budgetToken=${encodeURIComponent(budgetWarningInfo.value.budgetToken)}`, requestData)
+    if (res && res.budgetWarning) {
+      ElMessage.warning('预算情况已发生变化，请重新确认')
+      budgetWarningInfo.value = res
+      budgetRiskAcknowledged.value = false
+      return
+    }
     ElMessage.success('活动发起成功')
     showBudgetWarningDialog.value = false
     showAddDialog.value = false
@@ -1159,7 +1170,21 @@ const submitEdit = async () => {
 
 const forceSubmitEdit = async () => {
   try {
-    await request.put(`/activities/${editingActivityId.value}?forceBudget=true`, editForm.value)
+    if (!budgetWarningInfo.value.budgetToken) {
+      ElMessage.error('预算确认凭证已失效，请重新提交表单')
+      showBudgetWarningEditDialog.value = false
+      return
+    }
+    const res: any = await request.put(
+      `/activities/${editingActivityId.value}?budgetToken=${encodeURIComponent(budgetWarningInfo.value.budgetToken)}`,
+      editForm.value
+    )
+    if (res && res.budgetWarning) {
+      ElMessage.warning('预算情况已发生变化，请重新确认')
+      budgetWarningInfo.value = res
+      budgetRiskAcknowledged.value = false
+      return
+    }
     ElMessage.success('活动修改成功')
     showBudgetWarningEditDialog.value = false
     showEditDialog.value = false
