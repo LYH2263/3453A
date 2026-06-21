@@ -9,6 +9,7 @@
       <el-table-column prop="username" label="操作人" width="120" />
       <el-table-column prop="operation" label="操作描述" />
       <el-table-column prop="method" label="请求方法" show-overflow-tooltip />
+      <el-table-column prop="params" label="请求参数" show-overflow-tooltip min-width="200" />
       <el-table-column prop="ip" label="IP" width="140" />
       <el-table-column prop="time" label="耗时(ms)" width="100" />
       <el-table-column prop="status" label="状态" width="100">

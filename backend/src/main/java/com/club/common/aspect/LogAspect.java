@@ -1,6 +1,7 @@
 package com.club.common.aspect;
 
 import com.club.common.annotation.Log;
+import com.club.common.util.SensitiveDataMasker;
 import com.club.entity.ExceptionLog;
 import com.club.entity.OperationLog;
 import com.club.service.AdminLogService;
@@ -20,7 +21,6 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 
 @Aspect
 @Component
@@ -60,7 +60,7 @@ public class LogAspect {
         operLog.setMethod(className + "." + methodName + "()");
 
         Object[] args = joinPoint.getArgs();
-        operLog.setParams(Arrays.toString(args));
+        operLog.setParams(SensitiveDataMasker.maskParams(args));
 
         HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
         operLog.setIp(request.getRemoteAddr());
@@ -89,7 +89,7 @@ public class LogAspect {
         exLog.setMethod(className + "." + methodName + "()");
 
         Object[] args = joinPoint.getArgs();
-        exLog.setParams(Arrays.toString(args));
+        exLog.setParams(SensitiveDataMasker.maskParams(args));
 
         HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
         exLog.setIp(request.getRemoteAddr());
@@ -105,7 +105,7 @@ public class LogAspect {
         for (StackTraceElement element : e.getStackTrace()) {
             stackTrace.append(element.toString()).append("\n");
         }
-        exLog.setStackTrace(stackTrace.toString());
+        exLog.setStackTrace(SensitiveDataMasker.truncateStackTrace(stackTrace.toString(), 2000));
         
         exLog.setCreateTime(LocalDateTime.now());
         adminLogService.saveExceptionLog(exLog);
