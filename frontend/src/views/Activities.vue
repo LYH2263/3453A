@@ -160,7 +160,7 @@
                   :key="act.id"
                   class="cell-activity-item"
                   :class="getCalendarActivityClass(act)"
-                  @click.stop="handleCalendarActivityClick(act)">
+                  @click.stop="handleCalendarActivityClick(act, data.day)">
                   <span class="dot"></span>
                   <span class="act-title">{{ truncateText(act.title, 6) }}</span>
                 </div>
@@ -211,21 +211,21 @@
                 </el-button>
               </template>
               <template v-else-if="act._detail?.myStatus === 'WAITLIST'">
-                <el-button type="info" size="small" @click="handleLeaveWaitlist(findActivityById(act.id))">
+                <el-button type="info" size="small" @click="handleLeaveWaitlistFromCalendar(act)">
                   取消候补
                 </el-button>
               </template>
               <template v-else-if="act._detail?.myStatus === 'REGISTERED'">
-                <el-button type="danger" size="small" @click="handleCancel(findActivityById(act.id))">
+                <el-button type="danger" size="small" @click="handleCancelFromCalendar(act)">
                   取消报名
                 </el-button>
               </template>
-              <el-button v-if="canExpand(findActivityById(act.id))" type="success" size="small" @click="handleExpand(findActivityById(act.id))">
+              <el-button v-if="canExpand(findActivityById(act.id))" type="success" size="small" @click="handleExpandFromCalendar(act)">
                 扩容
               </el-button>
             </template>
-            <el-button v-if="canEdit(findActivityById(act.id))" type="primary" size="small" @click="handleEdit(findActivityById(act.id))">编辑</el-button>
-            <el-button v-if="canDelete(findActivityById(act.id))" type="danger" size="small" @click="handleDelete(findActivityById(act.id))">删除</el-button>
+            <el-button v-if="canEdit(findActivityById(act.id))" type="primary" size="small" @click="handleEditFromCalendar(act)">编辑</el-button>
+            <el-button v-if="canDelete(findActivityById(act.id))" type="danger" size="small" @click="handleDeleteFromCalendar(act)">删除</el-button>
             <el-button
               v-if="canFeedback(findActivityById(act.id))"
               type="primary"
@@ -244,7 +244,7 @@
               v-if="act.status === 'APPROVED' && userStore.role === 'CLUB_LEADER' && findActivityById(act.id)?.clubId === userStore.userInfo?.clubId"
               type="success"
               size="small"
-              @click="handleFinish(act.id)">
+              @click="handleFinishFromCalendar(act)">
               结束活动
             </el-button>
           </div>
@@ -868,10 +868,10 @@ const handleDateClick = (dayStr: string) => {
   showDayActivitiesDialog.value = true
 }
 
-const handleCalendarActivityClick = (act: CalendarActivity) => {
-  const parts = (act.startTime.replace('T', ' ').substring(0, 10)).split('-')
+const handleCalendarActivityClick = (_act: CalendarActivity, dayStr: string) => {
+  const parts = dayStr.split('-')
   selectedDate.value = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
-  selectedDateActivities.value = getActivitiesForDate(formatDateKey(selectedDate.value))
+  selectedDateActivities.value = getActivitiesForDate(dayStr)
   showDayActivitiesDialog.value = true
 }
 
@@ -885,10 +885,24 @@ const canAuditFromCalendar = (act: CalendarActivity): boolean => {
   return canAudit(listAct)
 }
 
-const handleAuditFromCalendar = (act: CalendarActivity) => {
+const refreshCalendarDialogActivity = async (act: CalendarActivity) => {
+  try {
+    const res: any = await request.get(`/activities/${act.id}/detail?userId=${userStore.userInfo?.id || ''}`)
+    act._detail = res
+    const listAct = findActivityById(act.id)
+    if (listAct) {
+      listAct._detail = res
+    }
+  } catch (err) {
+    console.error('Failed to refresh activity detail:', err)
+  }
+}
+
+const handleAuditFromCalendar = async (act: CalendarActivity) => {
   const listAct = findActivityById(act.id)
   if (listAct) {
-    handleAudit(listAct)
+    await handleAudit(listAct)
+    await refreshCalendarDialogActivity(act)
   }
 }
 
@@ -896,8 +910,57 @@ const handleRegisterFromCalendar = async (act: CalendarActivity) => {
   const listAct = findActivityById(act.id)
   if (listAct) {
     await handleRegister(listAct)
-    await fetchCalendarActivities()
+    await refreshCalendarDialogActivity(act)
   }
+}
+
+const handleCancelFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleCancel(listAct)
+    await refreshCalendarDialogActivity(act)
+  }
+}
+
+const handleLeaveWaitlistFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleLeaveWaitlist(listAct)
+    await refreshCalendarDialogActivity(act)
+  }
+}
+
+const handleExpandFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleExpand(listAct)
+    await refreshCalendarDialogActivity(act)
+  }
+}
+
+const handleEditFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleEdit(listAct)
+    await refreshCalendarDialogActivity(act)
+  }
+}
+
+const handleDeleteFromCalendar = async (act: CalendarActivity) => {
+  const listAct = findActivityById(act.id)
+  if (listAct) {
+    await handleDelete(listAct)
+    await fetchCalendarActivities()
+    if (selectedDate.value) {
+      selectedDateActivities.value = getActivitiesForDate(formatDateKey(selectedDate.value))
+    }
+  }
+}
+
+const handleFinishFromCalendar = async (act: CalendarActivity) => {
+  await handleFinish(act.id)
+  await refreshCalendarDialogActivity(act)
+  await fetchCalendarActivities()
 }
 
 const formatActivityTime = (act: CalendarActivity): string => {
