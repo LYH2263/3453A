@@ -102,9 +102,9 @@ public class BudgetLimitService {
         SecretKey key = Keys.hmacShaKeyFor(tokenSecret.getBytes(StandardCharsets.UTF_8));
 
         return Jwts.builder()
-            .claims(claims)
-            .issuedAt(issuedAt)
-            .expiration(expiration)
+            .setClaims(claims)
+            .setIssuedAt(issuedAt)
+            .setExpiration(expiration)
             .signWith(key)
             .compact();
     }
@@ -113,11 +113,11 @@ public class BudgetLimitService {
         if (token == null || token.trim().isEmpty()) return null;
         try {
             SecretKey key = Keys.hmacShaKeyFor(tokenSecret.getBytes(StandardCharsets.UTF_8));
-            Claims claims = Jwts.parser()
-                .verifyWith(key)
+            Claims claims = Jwts.parserBuilder()
+                .setSigningKey(key)
                 .build()
-                .parseSignedClaims(token)
-                .getPayload();
+                .parseClaimsJws(token)
+                .getBody();
             Object clubIdObj = claims.get("clubId");
             Object projectedTotal = claims.get("projectedTotal");
             Object limit = claims.get("limit");

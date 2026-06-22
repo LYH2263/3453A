@@ -12,10 +12,18 @@ ALTER TABLE activity_registrations
         NOT NULL DEFAULT 'REGISTERED'
         COMMENT '报名状态: REGISTERED-已报名, SIGNED_IN-已签到, WAITLIST-候补中, CANCELLED-已取消';
 
--- 2. 新增 waitlist_order 列
-ALTER TABLE activity_registrations
-    ADD COLUMN waitlist_order INT DEFAULT NULL
-        COMMENT '候补序号' AFTER reply;
+-- 2. 新增 waitlist_order 列（若 init.sql 已创建则跳过）
+SET @exists_col = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'activity_registrations'
+      AND COLUMN_NAME = 'waitlist_order');
+
+SET @sql = IF(@exists_col = 0,
+    'ALTER TABLE activity_registrations ADD COLUMN waitlist_order INT DEFAULT NULL COMMENT ''候补序号'' AFTER reply',
+    'SELECT ''waitlist_order already exists, skipping''');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- 3. 新增唯一索引（防重复报名），若已存在则跳过
 -- 先检查是否已存在该唯一索引
